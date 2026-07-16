@@ -1,0 +1,166 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Share+Tech+Mono&display=swap');
+@import "tailwindcss";
+
+/* Custom Theme Variables (shadcn/ui inspired) */
+:root {
+  --font-sans: 'Outfit', sans-serif;
+  --font-mono: 'Share Tech Mono', monospace;
+
+  /* CSS variables for Light Mode */
+  --background: 210 20% 98%;
+  --foreground: 222.2 84% 4.9%;
+  --card: 0 0% 100%;
+  --card-foreground: 222.2 84% 4.9%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222.2 84% 4.9%;
+  --primary: 222.2 47.4% 11.2%;
+  --primary-foreground: 210 40% 98%;
+  --secondary: 210 40% 96.1%;
+  --secondary-foreground: 222.2 47.4% 11.2%;
+  --muted: 210 40% 96.1%;
+  --muted-foreground: 215.4 16.3% 46.9%;
+  --accent: 210 40% 96.1%;
+  --accent-foreground: 222.2 47.4% 11.2%;
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 214.3 31.8% 91.4%;
+  --input: 214.3 31.8% 91.4%;
+  --ring: 222.2 84% 4.9%;
+  --radius: 0.75rem;
+
+  --color-green: 142.1 76.2% 36.3%; /* #16a34a */
+  --color-yellow: 47.9 95.8% 51.2%; /* #eab308 */
+  --color-red: 0 84.2% 60.2%; /* #ef4444 */
+}
+
+.dark-theme {
+  /* CSS variables for Dark Mode (SCADA Control Room Style) */
+  --background: 221 66% 5.7%; /* #050B18 */
+  --foreground: 210 40% 98%;
+  --card: 224 59% 10.6%; /* #0B132B */
+  --card-foreground: 210 40% 98%;
+  --popover: 222.2 84% 4.9%;
+  --popover-foreground: 210 40% 98%;
+  --primary: 210 40% 98%;
+  --primary-foreground: 222.2 47.4% 11.2%;
+  --secondary: 217.2 32.6% 17.5%;
+  --secondary-foreground: 210 40% 98%;
+  --muted: 217.2 32.6% 17.5%;
+  --muted-foreground: 215 20.2% 65.1%;
+  --accent: 217.2 32.6% 17.5%;
+  --accent-foreground: 210 40% 98%;
+  --destructive: 0 62.8% 30.6%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 217.2 32.6% 17.5%;
+  --input: 217.2 32.6% 17.5%;
+  --ring: 212.7 26.8% 83.9%;
+  
+  --color-green: 142 71% 45%; /* #22C55E */
+  --color-yellow: 38 92% 50%; /* #F59E0B */
+  --color-red: 0 84% 60%; /* #EF4444 */
+  --color-blue: 217 91% 60%; /* #3B82F6 */
+}
+
+/* Base resets & adjustments */
+html, body, #root {
+  font-family: var(--font-sans);
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  transition: background-color 0.5s ease, color 0.5s ease;
+  margin: 0;
+  padding: 0;
+  height: 100vh;
+  max-height: 100vh;
+  overflow: hidden;
+}
+
+/* Pulsing LED Lights (Andon indicators) */
+@keyframes andon-glow-green {
+  0%, 100% { box-shadow: 0 0 6px rgba(34, 197, 94, 0.4); opacity: 0.95; }
+  50% { box-shadow: 0 0 16px rgba(34, 197, 94, 0.85); opacity: 1; }
+}
+
+@keyframes andon-glow-yellow {
+  0%, 100% { box-shadow: 0 0 6px rgba(245, 158, 11, 0.4); opacity: 0.95; }
+  50% { box-shadow: 0 0 16px rgba(245, 158, 11, 0.85); opacity: 1; }
+}
+
+@keyframes andon-glow-red {
+  0%, 100% { box-shadow: 0 0 6px rgba(239, 68, 68, 0.4); opacity: 0.9; }
+  50% { box-shadow: 0 0 18px rgba(239, 68, 68, 0.9); opacity: 1; }
+}
+
+@keyframes andon-glow-blue {
+  0%, 100% { box-shadow: 0 0 6px rgba(59, 130, 246, 0.4); opacity: 0.95; }
+  50% { box-shadow: 0 0 16px rgba(59, 130, 246, 0.85); opacity: 1; }
+}
+
+.glow-green {
+  animation: andon-glow-green 2.5s infinite ease-in-out;
+  border-color: #22c55e !important;
+  transition: border-color 0.6s ease, box-shadow 0.6s ease;
+}
+
+.glow-yellow {
+  animation: andon-glow-yellow 2.5s infinite ease-in-out;
+  border-color: #f59e0b !important;
+  transition: border-color 0.6s ease, box-shadow 0.6s ease;
+}
+
+.glow-red {
+  animation: andon-glow-red 2s infinite ease-in-out;
+  border-color: #ef4444 !important;
+  transition: border-color 0.6s ease, box-shadow 0.6s ease;
+}
+
+.glow-blue {
+  animation: andon-glow-blue 2.5s infinite ease-in-out;
+  border-color: #3b82f6 !important;
+  transition: border-color 0.6s ease, box-shadow 0.6s ease;
+}
+
+/* Industrial Scanner Laser Visual overlay */
+.laser-scan-overlay {
+  position: relative;
+  overflow: hidden;
+}
+
+.laser-scan-overlay::after {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0; height: 3px;
+  background-color: #ff0000;
+  box-shadow: 0 0 8px #ff0000;
+  animation: scan-vertical 4s linear infinite;
+  pointer-events: none;
+  z-index: 10;
+}
+
+@keyframes scan-vertical {
+  0% { top: 0%; }
+  50% { top: 100%; }
+  100% { top: 0%; }
+}
+
+/* Custom Scrollbars for dark theme mesh */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground));
+}
+
+/* Glassmorphism panel overlay */
+.glass-surface {
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
