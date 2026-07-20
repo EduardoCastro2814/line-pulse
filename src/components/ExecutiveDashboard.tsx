@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { supabase, getActiveStaffingTarget, DEFAULT_SMT_LAYOUT, mapScanFromSupabase } from '../lib/supabaseClient';
+import { supabase, getActiveStaffingTarget, DEFAULT_SMT_LAYOUT, mapScanFromSupabase, calculateLineMetrics } from '../lib/supabaseClient';
 import { 
   Users, AlertTriangle, Clock, Percent, Search, Settings, ExternalLink, 
   BarChart2, LineChart as LineChartIcon, PieChart as PieChartIcon, Layers, 
@@ -764,24 +764,10 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                   </tr>
                 ) : (
                   filteredLines.map((line: any) => {
-                  const { target, isCoverageActive } = getActiveStaffingTarget(line.id);
-                  const present = getPresentOperatorsCount(line.id);
-                  const pct = target > 0 ? Math.round((present / target) * 100) : 0;
-                  const activeDtMin = getActiveDowntimeMinutes(line.id);
-                  const isSelected = selectedLineId === line.id && rightPanelMode === 'config';
-
-                  let statusEmoji = '🔴';
-                  let statusColor = '#EF4444';
-                  if (isCoverageActive && present >= target) {
-                    statusEmoji = '🔵';
-                    statusColor = '#3B82F6';
-                  } else if (pct >= 100) {
-                    statusEmoji = '🟢';
-                    statusColor = '#22C55E';
-                  } else if (pct > 0) {
-                    statusEmoji = '🟡';
-                    statusColor = '#EAB308';
-                  }
+                    const metrics = calculateLineMetrics(line.id, posiciones, scans, coverages);
+                    const { target, scannedCount: present, coveragePct: pct, statusEmoji, statusColor, isCoverageActive } = metrics;
+                    const activeDtMin = getActiveDowntimeMinutes(line.id);
+                    const isSelected = selectedLineId === line.id && rightPanelMode === 'config';
 
                   return (
                     <tr

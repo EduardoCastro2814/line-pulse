@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { supabase, getActiveStaffingTarget, DEFAULT_SMT_LAYOUT, validateAndMapScanInsert, mapScanFromSupabase } from '../lib/supabaseClient';
+import { supabase, getActiveStaffingTarget, DEFAULT_SMT_LAYOUT, validateAndMapScanInsert, mapScanFromSupabase, calculateLineMetrics } from '../lib/supabaseClient';
 import { Clock, QrCode, Maximize, Minimize, Utensils, CheckCircle2, AlertTriangle, ArrowLeft } from 'lucide-react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 
@@ -389,14 +389,19 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
 
   if (!isOpen || !line) return null;
 
-  // Active Staffing Target & Coverage Calculations
-  const configuredPositionsCount = posiciones.length;
-  const { target: shiftTarget, isCoverageActive, activeShiftName } = getActiveStaffingTarget(line.id);
-  const target = isCoverageActive 
-    ? shiftTarget 
-    : (configuredPositionsCount > 0 ? configuredPositionsCount : (shiftTarget > 0 ? shiftTarget : 6));
+  // Active Staffing Target & Coverage Calculations driven by UNIFIED calculateLineMetrics
+  const metrics = calculateLineMetrics(line.id, posiciones, escaneos, []);
+  const { 
+    target, 
+    scannedCount, 
+    coveragePct, 
+    missingCount, 
+    statusColor, 
+    statusBadgeText, 
+    activeShiftName,
+    isCoverageActive
+  } = metrics;
 
-  // Group scans for current active shift / distinct employees
   const distinctScannedEmployees = Array.from(
     new Set(
       escaneos
@@ -404,27 +409,6 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
         .filter(Boolean)
     )
   );
-
-  const scannedCount = distinctScannedEmployees.length;
-  const coveragePct = target > 0 ? Math.round((scannedCount / target) * 100) : 0;
-  const missingCount = Math.max(0, target - scannedCount);
-
-  // Color logic for overall line status:
-  // 0% -> FALTA PERSONAL (Red)
-  // 1% - 99% -> INTEGRANDO PERSONAL (Yellow)
-  // 100% -> PLANTILLA COMPLETA (Green)
-  let statusColor = '#EF4444'; // Red
-  let statusBadgeText = 'FALTA PERSONAL';
-  if (isCoverageActive) {
-    statusColor = '#3B82F6'; // Blue
-    statusBadgeText = 'COBERTURA DE COMEDOR ACTIVA';
-  } else if (coveragePct >= 100) {
-    statusColor = '#22C55E'; // Green
-    statusBadgeText = 'PLANTILLA COMPLETA';
-  } else if (coveragePct > 0) {
-    statusColor = '#EAB308'; // Yellow
-    statusBadgeText = 'INTEGRANDO PERSONAL';
-  }
 
   console.log('[DEBUG MONITOR KPIS]:', {
     lineId: line.id,

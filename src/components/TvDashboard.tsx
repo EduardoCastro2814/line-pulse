@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { supabase, getActiveStaffingTarget, mapScanFromSupabase } from '../lib/supabaseClient';
-import { Clock, Maximize, Minimize, LayoutDashboard, Utensils } from 'lucide-react';
+import { supabase, calculateLineMetrics, mapScanFromSupabase } from '../lib/supabaseClient';
+import { Clock, Maximize, Minimize, LayoutDashboard } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 export const TvDashboard: React.FC = () => {
@@ -8,6 +8,7 @@ export const TvDashboard: React.FC = () => {
   const [lines, setLines] = useState<any[]>([]);
   const [scans, setScans] = useState<any[]>([]);
   const [downtimes, setDowntimes] = useState<any[]>([]);
+  const [posiciones, setPosiciones] = useState<any[]>([]);
   const [currentClock, setCurrentClock] = useState('');
   
   // Fullscreen state
@@ -45,13 +46,23 @@ export const TvDashboard: React.FC = () => {
 
   const loadData = async () => {
     try {
-      const { data: linesData } = await supabase.from('lineas').select('*');
+      const { data: linesData } = await supabase.from('lineas').select('*').order('name', { ascending: true });
       const { data: scansData } = await supabase.from('escaneos').select('*');
       const { data: dtData } = await supabase.from('tiempos_muertos').select('*');
+
+      let posData: any[] = [];
+      const resPos = await supabase.from('posiciones').select('*');
+      if (resPos.data && resPos.data.length > 0) {
+        posData = resPos.data;
+      } else {
+        const resLinePos = await supabase.from('line_positions').select('*');
+        posData = resLinePos.data || [];
+      }
 
       setLines(linesData || []);
       setScans((scansData || []).map(mapScanFromSupabase));
       setDowntimes(dtData || []);
+      setPosiciones(posData);
     } catch (err) {
       console.warn('Handling empty database query in TvDashboard:', err);
     }
@@ -71,14 +82,6 @@ export const TvDashboard: React.FC = () => {
     };
   }, []);
 
-  const getPresentOperatorsCount = (lineId: string) => {
-    const lineScans = scans.filter((s: any) => s.line_id === lineId);
-    const distinctNumbers = new Set(
-      lineScans.map((s: any) => s.employee_number || s.badge_id).filter(Boolean)
-    );
-    return distinctNumbers.size;
-  };
-
   const getActiveDowntimeMinutes = (lineId: string) => {
     const activeDt = downtimes.find((dt: any) => dt.line_id === lineId && !dt.resolved);
     if (!activeDt) return 0;
@@ -86,24 +89,25 @@ export const TvDashboard: React.FC = () => {
     return Math.max(0, Math.floor(elapsedMs / 60000));
   };
 
-  // Counts for top summary
+  // Counts for top summary using UNIFIED calculateLineMetrics helper
   let countComplete = 0;
   let countInProgress = 0;
   let countCritical = 0;
 
   lines.forEach((line: any) => {
-    const { target, isCoverageActive } = getActiveStaffingTarget(line.id);
-    const present = getPresentOperatorsCount(line.id);
-    const pct = target > 0 ? Math.round((present / target) * 100) : 0;
+    const { coveragePct, isCoverageActive } = calculateLineMetrics(line.id, posiciones, scans, []);
     
-    if (isCoverageActive || pct >= 100) {
+    if (isCoverageActive || coveragePct >= 100) {
       countComplete++;
-    } else if (pct > 0) {
+    } else if (coveragePct > 0) {
       countInProgress++;
     } else {
       countCritical++;
     }
   });
+
+  // Responsive layout scaling calculation to guarantee NO vertical scrollbar
+  const lineCount = lines.length;
 
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#F5F7FA] text-slate-800 font-sans select-none p-4 space-y-4">
@@ -163,32 +167,30 @@ export const TvDashboard: React.FC = () => {
         </div>
       </header>
 
-      {/* 2. CORPORATE LIGHT TV GRID OF LINES */}
-      <main className="flex-grow min-h-0 w-full overflow-hidden">
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 h-full w-full overflow-y-auto pr-1">
+      {/* 2. CORPORATE LIGHT TV GRID OF LINES (FIXED SIZE CARDS & AUTO-SCALING FOR ZERO SCROLLBAR) */}
+      <main className="flex-1 min-h-0 w-full overflow-hidden flex items-center justify-center p-2">
+        <div className="w-full h-full flex flex-wrap gap-4 items-start justify-center overflow-hidden content-start">
           {lines.map((line: any) => {
-            const { target, isCoverageActive, activeShiftName } = getActiveStaffingTarget(line.id);
-            const present = getPresentOperatorsCount(line.id);
-            const pct = target > 0 ? Math.round((present / target) * 100) : 0;
+            const metrics = calculateLineMetrics(line.id, posiciones, scans, []);
+            const { 
+              target, 
+              scannedCount: present, 
+              coveragePct: pct, 
+              statusColor, 
+              statusBadgeText, 
+              statusEmoji, 
+              isCoverageActive, 
+              activeShiftName 
+            } = metrics;
+
             const dtMin = getActiveDowntimeMinutes(line.id);
 
-            // Color Rules:
-            // 🟢 VERDE (#22C55E): 100%
-            // 🟡 AMARILLO (#EAB308): 80% - 99%
-            // 🔴 ROJO (#EF4444): < 80%
-            // 🔵 AZUL (#3B82F6): Cobertura Comedor
-            let statusColor = '#EF4444';
-            let statusEmoji = '🔴';
-
-            if (isCoverageActive && present >= target) {
-              statusColor = '#3B82F6';
-              statusEmoji = '🔵';
-            } else if (pct >= 100) {
-              statusColor = '#22C55E';
-              statusEmoji = '🟢';
-            } else if (pct >= 80) {
-              statusColor = '#EAB308';
-              statusEmoji = '🟡';
+            // Responsive Scaling classes based on total line count to prevent scroll
+            let cardWidthClass = 'w-[320px] h-[210px]';
+            if (lineCount > 16) {
+              cardWidthClass = 'w-[260px] h-[170px] text-xs';
+            } else if (lineCount > 10) {
+              cardWidthClass = 'w-[290px] h-[190px]';
             }
 
             return (
@@ -196,35 +198,35 @@ export const TvDashboard: React.FC = () => {
                 key={line.id}
                 onClick={() => navigate(`/linea/${line.id}?tv=true`)}
                 style={{ borderColor: `${statusColor}` }}
-                className="bg-white border-2 hover:shadow-md p-4 rounded-2xl transition-all flex flex-col justify-between cursor-pointer select-none relative overflow-hidden"
+                className={`${cardWidthClass} bg-white border-2 hover:shadow-lg rounded-2xl transition-all flex flex-col justify-between p-4 cursor-pointer select-none relative overflow-hidden shrink-0 shadow-sm`}
               >
-                {/* Top: Name & Shift */}
+                {/* Top Header: Status Emoji, Name & Status Badge */}
                 <div className="flex justify-between items-start">
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="text-xl">{statusEmoji}</span>
-                      <span className="text-base font-black text-slate-900 uppercase tracking-wider font-mono">
+                      <span className="text-lg">{statusEmoji}</span>
+                      <span className="text-base font-black text-slate-900 uppercase tracking-wider font-mono truncate max-w-[160px]">
                         {line.name}
                       </span>
                     </div>
-                    <span className="text-[11px] text-slate-500 font-semibold block mt-0.5">
+                    <span className="text-[10px] text-slate-500 font-bold block mt-0.5">
                       {activeShiftName}
                     </span>
                   </div>
 
-                  {isCoverageActive && (
-                    <span className="px-2 py-0.5 bg-blue-50 border border-blue-200 text-blue-700 text-[10px] font-bold rounded-md flex items-center gap-1">
-                      <Utensils className="w-3 h-3" />
-                      Comedor
-                    </span>
-                  )}
+                  <span 
+                    className="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase font-mono tracking-wide"
+                    style={{ backgroundColor: `${statusColor}15`, color: statusColor, border: `1px solid ${statusColor}40` }}
+                  >
+                    {isCoverageActive ? 'COMEDOR' : statusBadgeText}
+                  </span>
                 </div>
 
-                {/* Center: Large KPI Compliance Ring / Text */}
-                <div className="my-3 flex items-baseline justify-between">
+                {/* Center: Large KPI Compliance & Counts */}
+                <div className="my-1 flex items-baseline justify-between">
                   <div className="flex items-baseline gap-1 font-mono">
                     <span className="text-3xl font-black text-slate-900">{present}</span>
-                    <span className="text-sm text-slate-400 font-semibold">/ {target} op</span>
+                    <span className="text-xs text-slate-400 font-bold">/ {target} op</span>
                   </div>
 
                   <span className="text-3xl font-black font-mono" style={{ color: statusColor }}>
@@ -241,14 +243,14 @@ export const TvDashboard: React.FC = () => {
                     />
                   </div>
 
-                  <div className="flex justify-between items-center text-[11px] font-mono text-slate-500 pt-1">
-                    <span>Tiempo Muerto:</span>
+                  <div className="flex justify-between items-center text-[10px] font-mono text-slate-500 pt-0.5">
+                    <span className="font-bold text-slate-400">TIEMPO MUERTO:</span>
                     {dtMin > 0 ? (
-                      <span className="text-amber-600 font-bold bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                      <span className="text-amber-700 font-extrabold bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
                         {dtMin} min
                       </span>
                     ) : (
-                      <span>0 min</span>
+                      <span className="font-semibold text-slate-400">0 min</span>
                     )}
                   </div>
                 </div>

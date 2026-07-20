@@ -581,6 +581,61 @@ export const getActiveStaffingTarget = (lineId: string): { target: number; isCov
   return { target: normalTarget, isCoverageActive: false, activeShiftName };
 };
 
+// Unified KPI & Line Status Calculator for Single Source of Truth
+export const calculateLineMetrics = (
+  lineId: string,
+  posicionesList: any[],
+  scansList: any[],
+  _coveragesList: any[] = []
+) => {
+  const linePos = posicionesList.filter((p: any) => p.line_id === lineId);
+  const lineScans = scansList.filter((s: any) => s.line_id === lineId && s.was_successful !== false);
+  
+  const distinctScanned = new Set(
+    lineScans
+      .map((s: any) => (s.employee_number || s.badge_id || '').trim())
+      .filter(Boolean)
+  ).size;
+
+  const { target: shiftTarget, isCoverageActive, activeShiftName } = getActiveStaffingTarget(lineId);
+  const target = isCoverageActive
+    ? shiftTarget
+    : (linePos.length > 0 ? linePos.length : (shiftTarget > 0 ? shiftTarget : 6));
+
+  const coveragePct = target > 0 ? Math.round((distinctScanned / target) * 100) : 0;
+  const missingCount = Math.max(0, target - distinctScanned);
+
+  let statusColor = '#EF4444'; // Red
+  let statusBadgeText = 'FALTA PERSONAL';
+  let statusEmoji = '🔴';
+
+  if (isCoverageActive) {
+    statusColor = '#3B82F6'; // Blue
+    statusBadgeText = 'COBERTURA DE COMEDOR ACTIVA';
+    statusEmoji = '🔵';
+  } else if (coveragePct >= 100) {
+    statusColor = '#22C55E'; // Green
+    statusBadgeText = 'PLANTILLA COMPLETA';
+    statusEmoji = '🟢';
+  } else if (coveragePct > 0) {
+    statusColor = '#EAB308'; // Yellow
+    statusBadgeText = 'INTEGRANDO PERSONAL';
+    statusEmoji = '🟡';
+  }
+
+  return {
+    target,
+    scannedCount: distinctScanned,
+    coveragePct,
+    missingCount,
+    statusColor,
+    statusBadgeText,
+    statusEmoji,
+    isCoverageActive,
+    activeShiftName
+  };
+};
+
 // Automatic Shift Ticker Checker (Arranque Automático)
 if (typeof window !== 'undefined') {
   let lastCheckedTime = '';
