@@ -77,6 +77,12 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
   const [posiciones, setPosiciones] = useState<any[]>([]);
   const [tiemposMuertos, setTiemposMuertos] = useState<any[]>([]);
 
+  // Escaneos Ref to prevent stale closures in event listeners
+  const escaneosRef = useRef<any[]>([]);
+  useEffect(() => {
+    escaneosRef.current = escaneos;
+  }, [escaneos]);
+
   // Inline scanner states & USB Direct Capture
   const [manualScanInput, setManualScanInput] = useState('');
   const [scanFeedback, setScanFeedback] = useState<{ status: 'success' | 'error' | null; message: string }>({
@@ -135,9 +141,11 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
       const { data: lineData } = await supabase.from('lineas').select('*, area:areas(*)').eq('id', lineId);
       if (lineData && lineData.length > 0) setLine(lineData[0]);
 
-      // Load ALL scans mapped consistently
+      // Load ALL scans mapped consistently (Fresh from Supabase)
       const { data: escData } = await supabase.from('escaneos').select('*').eq('line_id', lineId).order('created_at', { ascending: true });
-      setEscaneos((escData || []).map(mapScanFromSupabase));
+      const freshMappedScans = (escData || []).map(mapScanFromSupabase);
+      setEscaneos(freshMappedScans);
+      escaneosRef.current = freshMappedScans;
 
       // Load positions mapping (try 'posiciones' then fallback to 'line_positions')
       let posRes = await supabase.from('posiciones').select('*, empleado:empleados(*)').eq('line_id', lineId).order('code', { ascending: true });
@@ -190,7 +198,7 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
     }
   }, [isOpen, lineId]);
 
-  // Execute Direct USB Scan Processing with Strict Rules (Reglas 1 - 5)
+  // Execute Direct USB Scan Processing with Strict Rules (Reglas 1 - 5) & escaneosRef
   const processDirectScan = async (empNum: string) => {
     setManualScanInput('');
     if (!lineId) return;
@@ -209,16 +217,31 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
       return;
     }
 
-    const { target, isCoverageActive } = getActiveStaffingTarget(lineId);
+    const configuredPositionsCount = posiciones.length;
+    const { target: shiftTarget, isCoverageActive } = getActiveStaffingTarget(lineId);
+    const target = isCoverageActive 
+      ? shiftTarget 
+      : (configuredPositionsCount > 0 ? configuredPositionsCount : (shiftTarget > 0 ? shiftTarget : 6));
 
-    // Current scanned list of distinct numbers for this line
+    // Current scanned list of distinct numbers for this line from FRESH REF (Single Source of Truth)
+    const activeScans = escaneosRef.current;
     const currentScannedList = Array.from(
       new Set(
-        escaneos
+        activeScans
+          .filter(s => s.line_id === lineId && s.was_successful !== false)
           .map(s => (s.employee_number || s.badge_id || '').trim())
           .filter(Boolean)
       )
     );
+
+    console.log('[DEBUG MONITOR KPIS PRE-INSERT]:', {
+      lineId,
+      configuredPositionsCount,
+      target,
+      scannedCount: currentScannedList.length,
+      currentScannedList,
+      attemptedNumber: cleanNum
+    });
 
     // REGLA 4: No Duplicates in Same Shift
     if (currentScannedList.includes(cleanNum)) {
@@ -230,7 +253,7 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
       return;
     }
 
-    // REGLA 5: Do NOT exceed target capacity
+    // REGLA 5: Do NOT exceed target capacity (ONLY block if scannedCount >= target)
     if (currentScannedList.length >= target) {
       setScanFeedback({
         status: 'error',
@@ -274,7 +297,9 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
     };
 
     // 2. Immediately update local state so UI turns GREEN instantly!
-    setEscaneos(prev => [...prev, newScanRecord]);
+    const updatedScansList = [...activeScans, newScanRecord];
+    setEscaneos(updatedScansList);
+    escaneosRef.current = updatedScansList;
 
     setScanFeedback({
       status: 'success',
@@ -400,6 +425,15 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
     statusColor = '#EAB308'; // Yellow
     statusBadgeText = 'INTEGRANDO PERSONAL';
   }
+
+  console.log('[DEBUG MONITOR KPIS]:', {
+    lineId: line.id,
+    posicionesRequeridas: target,
+    escaneosActivos: scannedCount,
+    coberturaCalculada: `${coveragePct}%`,
+    estadoCalculado: statusBadgeText,
+    distinctScannedEmployees
+  });
 
   // Active Downtime calculation
   const activeDt = tiemposMuertos.find(tm => !tm.resolved);
