@@ -3,7 +3,7 @@ import { supabase, getActiveStaffingTarget, DEFAULT_SMT_LAYOUT } from '../lib/su
 import { 
   Users, AlertTriangle, Clock, Percent, Search, Settings, ExternalLink, 
   BarChart2, LineChart as LineChartIcon, PieChart as PieChartIcon, Layers, 
-  Save, Upload, CheckCircle2
+  Save, Upload, CheckCircle2, Plus, X
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { 
@@ -37,6 +37,9 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
   // Configuration Sub-Tab state
   const [configSubTab, setConfigSubTab] = useState<'lines' | 'staff' | 'coverages' | 'layout'>('lines');
   
+  // Modal State for + Nueva Línea
+  const [isLineCreateModalOpen, setIsLineCreateModalOpen] = useState(false);
+
   // Line editing form
   const [lineForm, setLineForm] = useState({
     id: '',
@@ -49,7 +52,8 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
     shift2_target: 6,
     shift3_start: '22:00:00',
     shift3_target: 4,
-    layout_url: ''
+    layout_url: '',
+    status: 'FALTA PERSONAL'
   });
 
   // Employee form state
@@ -142,7 +146,8 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
           shift2_target: line.shift2_target || 0,
           shift3_start: line.shift3_start || '22:00:00',
           shift3_target: line.shift3_target || 0,
-          layout_url: line.layout_url || ''
+          layout_url: line.layout_url || '',
+          status: line.status || 'FALTA PERSONAL'
         });
       }
     }
@@ -182,7 +187,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
     setRightPanelMode('config');
   };
 
-  // Save Line Parameters
+  // Save or Create Line Parameters
   const handleSaveLine = async () => {
     if (!lineForm.name.trim() || !lineForm.area_id) {
       showFeedback('error', 'Nombre de Línea y Área son requeridos.');
@@ -199,15 +204,32 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
       shift2_target: Number(lineForm.shift2_target),
       shift3_start: lineForm.shift3_start,
       shift3_target: Number(lineForm.shift3_target),
-      layout_url: lineForm.layout_url
+      layout_url: lineForm.layout_url,
+      status: (lineForm as any).status || 'FALTA PERSONAL'
     };
 
-    const { error } = await supabase.from('lineas').update(payload).eq('id', lineForm.id);
-    if (error) {
-      showFeedback('error', `Error al guardar: ${error.message}`);
+    if (lineForm.id) {
+      const { error } = await supabase.from('lineas').update(payload).eq('id', lineForm.id);
+      if (error) {
+        showFeedback('error', `Error al guardar: ${error.message}`);
+      } else {
+        showFeedback('success', 'Configuración de línea guardada con éxito.');
+        setIsLineCreateModalOpen(false);
+        loadData();
+      }
     } else {
-      showFeedback('success', 'Configuración de línea guardada con éxito.');
-      loadData();
+      const { data, error } = await supabase.from('lineas').insert([payload]).select();
+      if (error) {
+        showFeedback('error', `Error al crear línea: ${error.message}`);
+      } else {
+        showFeedback('success', 'Nueva línea creada con éxito.');
+        setIsLineCreateModalOpen(false);
+        loadData();
+        if (data && data[0]) {
+          setSelectedLineId(data[0].id);
+          setRightPanelMode('config');
+        }
+      }
     }
   };
 
@@ -488,7 +510,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
         <div className="w-full lg:w-[40%] bg-white border border-[#DCE3EA] rounded-2xl flex flex-col overflow-hidden shadow-sm shrink-0">
           
           {/* Header Controls */}
-          <div className="p-3 border-b border-[#DCE3EA] bg-[#F5F7FA] flex items-center justify-between gap-2 shrink-0">
+          <div className="p-3 border-b border-[#DCE3EA] bg-[#F5F7FA] flex items-center justify-between gap-2 shrink-0 flex-wrap">
             <div className="flex items-center gap-2">
               <Layers className="w-4 h-4 text-[#005486]" />
               <span className="text-xs font-black uppercase text-slate-800 tracking-wider">Líneas de Producción</span>
@@ -502,7 +524,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                   placeholder="Buscar..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-28 bg-white border border-[#DCE3EA] rounded-lg pl-7 pr-2 py-1 text-[11px] text-slate-800 focus:outline-none focus:border-[#005486]"
+                  className="w-24 sm:w-28 bg-white border border-[#DCE3EA] rounded-lg pl-7 pr-2 py-1 text-[11px] text-slate-800 focus:outline-none focus:border-[#005486]"
                 />
               </div>
 
@@ -516,6 +538,31 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                   <option key={a.id} value={a.id}>{a.name}</option>
                 ))}
               </select>
+
+              {/* Botón + Nueva Línea */}
+              <button
+                onClick={() => {
+                  setLineForm({
+                    id: '',
+                    name: '',
+                    area_id: areas[0]?.id || '',
+                    process: '',
+                    shift1_start: '06:00:00',
+                    shift1_target: 6,
+                    shift2_start: '14:00:00',
+                    shift2_target: 6,
+                    shift3_start: '22:00:00',
+                    shift3_target: 4,
+                    layout_url: '',
+                    status: 'FALTA PERSONAL'
+                  } as any);
+                  setIsLineCreateModalOpen(true);
+                }}
+                className="bg-[#005486] hover:bg-[#003f66] text-white px-2.5 py-1 rounded-lg text-xs font-extrabold flex items-center gap-1 shadow-sm transition-all cursor-pointer shrink-0"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ Nueva Línea</span>
+              </button>
             </div>
           </div>
 
@@ -532,7 +579,45 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#DCE3EA]">
-                {filteredLines.map((line: any) => {
+                {filteredLines.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-12 px-4 text-center">
+                      <div className="flex flex-col items-center justify-center gap-3">
+                        <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center text-[#005486]">
+                          <Layers className="w-6 h-6" />
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-sm font-bold text-slate-800">No hay líneas configuradas</p>
+                          <p className="text-xs text-slate-500">Agrega una línea de producción para comenzar a monitorear.</p>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setLineForm({
+                              id: '',
+                              name: '',
+                              area_id: areas[0]?.id || '',
+                              process: '',
+                              shift1_start: '06:00:00',
+                              shift1_target: 6,
+                              shift2_start: '14:00:00',
+                              shift2_target: 6,
+                              shift3_start: '22:00:00',
+                              shift3_target: 4,
+                              layout_url: '',
+                              status: 'FALTA PERSONAL'
+                            } as any);
+                            setIsLineCreateModalOpen(true);
+                          }}
+                          className="mt-2 bg-[#005486] hover:bg-[#003f66] text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                        >
+                          <Plus className="w-4 h-4" />
+                          <span>+ Crear Primera Línea</span>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredLines.map((line: any) => {
                   const { target, isCoverageActive } = getActiveStaffingTarget(line.id);
                   const present = getPresentOperatorsCount(line.id);
                   const pct = target > 0 ? Math.round((present / target) * 100) : 0;
@@ -578,7 +663,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                       </td>
                     </tr>
                   );
-                })}
+                }))}
               </tbody>
             </table>
           </div>
@@ -1151,6 +1236,188 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
         </div>
 
       </div>
+
+      {/* MODAL CREAR / EDITAR NUEVA LÍNEA */}
+      {isLineCreateModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white border border-[#DCE3EA] rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
+            {/* Modal Header */}
+            <div className="bg-[#005486] px-5 py-4 flex items-center justify-between text-white">
+              <div className="flex items-center gap-2">
+                <Layers className="w-5 h-5" />
+                <h3 className="text-sm font-black tracking-wide uppercase">
+                  {lineForm.id ? 'Editar Línea de Producción' : '+ Nueva Línea de Producción'}
+                </h3>
+              </div>
+              <button
+                onClick={() => setIsLineCreateModalOpen(false)}
+                className="text-white/80 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-all cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Nombre Línea */}
+                <div className="col-span-2 md:col-span-1">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Nombre Línea <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ej. Línea 14"
+                    value={lineForm.name}
+                    onChange={(e) => setLineForm({ ...lineForm, name: e.target.value })}
+                    className="w-full bg-white border border-[#DCE3EA] rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-[#005486] font-semibold"
+                  />
+                </div>
+
+                {/* Área */}
+                <div className="col-span-2 md:col-span-1">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Área <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={lineForm.area_id}
+                    onChange={(e) => setLineForm({ ...lineForm, area_id: e.target.value })}
+                    className="w-full bg-white border border-[#DCE3EA] rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-[#005486] font-semibold cursor-pointer"
+                  >
+                    <option value="">Seleccione Área...</option>
+                    {areas.map(a => (
+                      <option key={a.id} value={a.id}>{a.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Proceso */}
+                <div className="col-span-2">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Proceso / Descripción
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ej. Ensamble SMT SIPLACE"
+                    value={lineForm.process}
+                    onChange={(e) => setLineForm({ ...lineForm, process: e.target.value })}
+                    className="w-full bg-white border border-[#DCE3EA] rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-[#005486]"
+                  />
+                </div>
+
+                {/* Turno 1 */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Turno 1 Inicio
+                  </label>
+                  <input
+                    type="time"
+                    value={lineForm.shift1_start}
+                    onChange={(e) => setLineForm({ ...lineForm, shift1_start: e.target.value })}
+                    className="w-full bg-white border border-[#DCE3EA] rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-[#005486]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Plantilla Turno 1
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={lineForm.shift1_target}
+                    onChange={(e) => setLineForm({ ...lineForm, shift1_target: Number(e.target.value) })}
+                    className="w-full bg-white border border-[#DCE3EA] rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-[#005486]"
+                  />
+                </div>
+
+                {/* Turno 2 */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Turno 2 Inicio
+                  </label>
+                  <input
+                    type="time"
+                    value={lineForm.shift2_start}
+                    onChange={(e) => setLineForm({ ...lineForm, shift2_start: e.target.value })}
+                    className="w-full bg-white border border-[#DCE3EA] rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-[#005486]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Plantilla Turno 2
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={lineForm.shift2_target}
+                    onChange={(e) => setLineForm({ ...lineForm, shift2_target: Number(e.target.value) })}
+                    className="w-full bg-white border border-[#DCE3EA] rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-[#005486]"
+                  />
+                </div>
+
+                {/* Turno 3 */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Turno 3 Inicio
+                  </label>
+                  <input
+                    type="time"
+                    value={lineForm.shift3_start}
+                    onChange={(e) => setLineForm({ ...lineForm, shift3_start: e.target.value })}
+                    className="w-full bg-white border border-[#DCE3EA] rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-[#005486]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Plantilla Turno 3
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={lineForm.shift3_target}
+                    onChange={(e) => setLineForm({ ...lineForm, shift3_target: Number(e.target.value) })}
+                    className="w-full bg-white border border-[#DCE3EA] rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-[#005486]"
+                  />
+                </div>
+
+                {/* Estado */}
+                <div className="col-span-2">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Estado Inicial
+                  </label>
+                  <select
+                    value={(lineForm as any).status || 'FALTA PERSONAL'}
+                    onChange={(e) => setLineForm({ ...lineForm, status: e.target.value } as any)}
+                    className="w-full bg-white border border-[#DCE3EA] rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-[#005486] font-semibold cursor-pointer"
+                  >
+                    <option value="FALTA PERSONAL">🔴 FALTA PERSONAL</option>
+                    <option value="COMPLETO">🟢 COMPLETO</option>
+                    <option value="COBERTURA ACTIVA">🔵 COBERTURA ACTIVA</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="bg-[#F5F7FA] px-5 py-3 border-t border-[#DCE3EA] flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIsLineCreateModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-200 transition-all cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveLine}
+                className="bg-[#005486] hover:bg-[#003f66] text-white px-5 py-2 rounded-xl text-xs font-extrabold shadow-sm transition-all cursor-pointer"
+              >
+                Guardar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
