@@ -44,13 +44,17 @@ export const TvDashboard: React.FC = () => {
   };
 
   const loadData = async () => {
-    const { data: linesData } = await supabase.from('lineas').select('*');
-    const { data: scansData } = await supabase.from('escaneos').select('*');
-    const { data: dtData } = await supabase.from('tiempos_muertos').select('*');
+    try {
+      const { data: linesData } = await supabase.from('lineas').select('*');
+      const { data: scansData } = await supabase.from('escaneos').select('*');
+      const { data: dtData } = await supabase.from('tiempos_muertos').select('*');
 
-    if (linesData) setLines(linesData);
-    if (scansData) setScans(scansData);
-    if (dtData) setDowntimes(dtData);
+      setLines(linesData || []);
+      setScans(scansData || []);
+      setDowntimes(dtData || []);
+    } catch (err) {
+      console.warn('Handling empty database query in TvDashboard:', err);
+    }
   };
 
   useEffect(() => {

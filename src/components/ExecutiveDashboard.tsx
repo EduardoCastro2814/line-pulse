@@ -80,23 +80,36 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
   const [feedbackMsg, setFeedbackMsg] = useState<{ type: 'success' | 'error' | null; text: string }>({ type: null, text: '' });
 
   const loadData = async () => {
-    const { data: linesData } = await supabase.from('lineas').select('*');
-    const { data: scansData } = await supabase.from('escaneos').select('*');
-    const { data: dtData } = await supabase.from('tiempos_muertos').select('*');
-    const { data: areasData } = await supabase.from('areas').select('*');
-    const { data: empData } = await supabase.from('empleados').select('*');
-    const { data: assignData } = await supabase.from('empleados_linea').select('*, empleado:empleados(*)');
-    const { data: covData } = await supabase.from('coberturas').select('*');
-    const { data: posData } = await supabase.from('posiciones').select('*, empleado:empleados(*)');
+    try {
+      const { data: linesData } = await supabase.from('lineas').select('*');
+      const { data: scansData } = await supabase.from('escaneos').select('*');
+      const { data: dtData } = await supabase.from('tiempos_muertos').select('*');
+      const { data: areasData } = await supabase.from('areas').select('*');
+      const { data: empData } = await supabase.from('empleados').select('*');
+      const { data: assignData } = await supabase.from('empleados_linea').select('*, empleado:empleados(*)');
+      const { data: covData } = await supabase.from('coberturas').select('*');
+      
+      // Attempt querying 'posiciones' or fallback to 'line_positions'
+      let posData = null;
+      const resPos = await supabase.from('posiciones').select('*, empleado:empleados(*)');
+      if (resPos.data) {
+        posData = resPos.data;
+      } else {
+        const resLinePos = await supabase.from('line_positions').select('*, empleado:empleados(*)');
+        posData = resLinePos.data;
+      }
 
-    if (linesData) setLines(linesData);
-    if (scansData) setScans(scansData);
-    if (dtData) setDowntimes(dtData);
-    if (areasData) setAreas(areasData);
-    if (empData) setEmployees(empData);
-    if (assignData) setAssignments(assignData);
-    if (covData) setCoverages(covData);
-    if (posData) setPosiciones(posData);
+      setLines(linesData || []);
+      setScans(scansData || []);
+      setDowntimes(dtData || []);
+      setAreas(areasData || []);
+      setEmployees(empData || []);
+      setAssignments(assignData || []);
+      setCoverages(covData || []);
+      setPosiciones(posData || []);
+    } catch (err) {
+      console.warn('Handling empty or uninitialized database tables:', err);
+    }
   };
 
   useEffect(() => {

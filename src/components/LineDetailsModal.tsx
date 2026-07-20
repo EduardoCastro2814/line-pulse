@@ -132,25 +132,32 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
   const loadData = async () => {
     if (!lineId) return;
 
-    // Load line info
-    const { data: lineData } = await supabase.from('lineas').select('*, area:areas(*)').eq('id', lineId);
-    if (lineData && lineData.length > 0) setLine(lineData[0]);
+    try {
+      // Load line info
+      const { data: lineData } = await supabase.from('lineas').select('*, area:areas(*)').eq('id', lineId);
+      if (lineData && lineData.length > 0) setLine(lineData[0]);
 
-    // Load ALL scans
-    const { data: escData } = await supabase.from('escaneos').select('*').eq('line_id', lineId);
-    if (escData) setEscaneos(escData);
+      // Load ALL scans
+      const { data: escData } = await supabase.from('escaneos').select('*').eq('line_id', lineId);
+      setEscaneos(escData || []);
 
-    // Load assignments
-    const { data: assignData } = await supabase.from('empleados_linea').select('*, empleado:empleados(*)').eq('line_id', lineId);
-    if (assignData) setAssignments(assignData);
+      // Load assignments
+      const { data: assignData } = await supabase.from('empleados_linea').select('*, empleado:empleados(*)').eq('line_id', lineId);
+      setAssignments(assignData || []);
 
-    // Load positions mapping
-    const { data: posData } = await supabase.from('posiciones').select('*, empleado:empleados(*)').eq('line_id', lineId);
-    if (posData) setPosiciones(posData);
+      // Load positions mapping (try 'posiciones' then fallback to 'line_positions')
+      let posRes = await supabase.from('posiciones').select('*, empleado:empleados(*)').eq('line_id', lineId);
+      if (!posRes.data || posRes.data.length === 0) {
+        posRes = await supabase.from('line_positions').select('*, empleado:empleados(*)').eq('line_id', lineId);
+      }
+      setPosiciones(posRes.data || []);
 
-    // Load downtime logs
-    const { data: tmData } = await supabase.from('tiempos_muertos').select('*').eq('line_id', lineId);
-    if (tmData) setTiemposMuertos(tmData);
+      // Load downtime logs
+      const { data: tmData } = await supabase.from('tiempos_muertos').select('*').eq('line_id', lineId);
+      setTiemposMuertos(tmData || []);
+    } catch (err) {
+      console.warn('Handling empty line details in LineDetailsModal:', err);
+    }
   };
 
   // Industrial Clock Ticker

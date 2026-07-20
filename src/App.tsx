@@ -164,11 +164,11 @@ export default function App() {
                   title={connectionStatus.message}
                 >
                   <Database className="w-3.5 h-3.5" />
-                  <span className="hidden xl:inline">
+                  <span className="hidden sm:inline">
                     {connectionStatus.isConnected 
-                      ? 'PostgreSQL Supabase'
+                      ? '✅ Supabase Conectado'
                       : connectionStatus.isConfigured
-                      ? 'Error Supabase'
+                      ? '⚠️ Error Supabase (404/Tablas Falta)'
                       : 'Modo Demo Local'}
                   </span>
                   <span 
