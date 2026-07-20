@@ -82,18 +82,57 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
   const [analyticsFilterDate, setAnalyticsFilterDate] = useState(new Date().toISOString().split('T')[0]);
 
   const [feedbackMsg, setFeedbackMsg] = useState<{ type: 'success' | 'error' | null; text: string }>({ type: null, text: '' });
+  const [areaLoadError, setAreaLoadError] = useState(false);
+  const [formErrors, setFormErrors] = useState<{ name?: string; area_id?: string }>({});
+
+  const ensureAreasExist = async (currentAreasData: any[]) => {
+    let list = currentAreasData || [];
+    setAreaLoadError(false);
+
+    if (list.length === 0) {
+      try {
+        const { data: inserted, error: insertErr } = await supabase
+          .from('areas')
+          .insert([
+            { name: 'SMT', description: 'Surface Mount Technology' },
+            { name: 'Backend', description: 'Ensamble y Backend' }
+          ])
+          .select();
+
+        if (inserted && inserted.length > 0) {
+          list = inserted;
+        } else {
+          const { data: reselect, error: selErr } = await supabase.from('areas').select('*');
+          if (reselect && reselect.length > 0) {
+            list = reselect;
+          } else if (insertErr || selErr) {
+            console.warn('Could not insert or select areas:', insertErr || selErr);
+          }
+        }
+      } catch (e) {
+        console.warn('Auto-seeding default areas:', e);
+      }
+    }
+
+    if (list.length === 0) {
+      list = [
+        { id: 'area-smt-default', name: 'SMT', description: 'Surface Mount Technology' },
+        { id: 'area-backend-default', name: 'Backend', description: 'Ensamble y Backend' }
+      ];
+    }
+    return list;
+  };
 
   const loadData = async () => {
     try {
       const { data: linesData } = await supabase.from('lineas').select('*');
       const { data: scansData } = await supabase.from('escaneos').select('*');
       const { data: dtData } = await supabase.from('tiempos_muertos').select('*');
-      const { data: areasData } = await supabase.from('areas').select('*');
+      const { data: areasData, error: areasError } = await supabase.from('areas').select('*');
       const { data: empData } = await supabase.from('empleados').select('*');
       const { data: assignData } = await supabase.from('empleados_linea').select('*, empleado:empleados(*)');
       const { data: covData } = await supabase.from('coberturas').select('*');
       
-      // Attempt querying 'posiciones' or fallback to 'line_positions'
       let posData = null;
       const resPos = await supabase.from('posiciones').select('*, empleado:empleados(*)');
       if (resPos.data) {
@@ -103,16 +142,27 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
         posData = resLinePos.data;
       }
 
+      if (areasError && (!areasData || areasData.length === 0)) {
+        setAreaLoadError(true);
+      }
+
+      const verifiedAreas = await ensureAreasExist(areasData || []);
+
       setLines(linesData || []);
       setScans(scansData || []);
       setDowntimes(dtData || []);
-      setAreas(areasData || []);
+      setAreas(verifiedAreas);
       setEmployees(empData || []);
       setAssignments(assignData || []);
       setCoverages(covData || []);
       setPosiciones(posData || []);
     } catch (err) {
       console.warn('Handling empty or uninitialized database tables:', err);
+      setAreaLoadError(true);
+      setAreas([
+        { id: 'area-smt-default', name: 'SMT', description: 'Surface Mount Technology' },
+        { id: 'area-backend-default', name: 'Backend', description: 'Ensamble y Backend' }
+      ]);
     }
   };
 
@@ -189,13 +239,29 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
 
   // Save or Create Line Parameters
   const handleSaveLine = async () => {
-    if (!lineForm.name.trim() || !lineForm.area_id) {
-      showFeedback('error', 'Nombre de Línea y Área son requeridos.');
-      return;
+    const errors: { name?: string; area_id?: string } = {};
+
+    if (!lineForm.name || !lineForm.name.trim()) {
+      errors.name = 'Ingrese el nombre de la línea';
+    }
+    if (!lineForm.area_id) {
+      errors.area_id = 'Seleccione un área';
     }
 
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
+      if (errors.area_id) {
+        showFeedback('error', 'Seleccione un área');
+      } else if (errors.name) {
+        showFeedback('error', 'Ingrese el nombre de la línea');
+      }
+      return; // Mantener el modal abierto
+    }
+
+    setFormErrors({});
+
     const payload = {
-      name: lineForm.name,
+      name: lineForm.name.trim(),
       area_id: lineForm.area_id,
       process: lineForm.process,
       shift1_start: lineForm.shift1_start,
@@ -211,18 +277,18 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
     if (lineForm.id) {
       const { error } = await supabase.from('lineas').update(payload).eq('id', lineForm.id);
       if (error) {
-        showFeedback('error', `Error al guardar: ${error.message}`);
+        showFeedback('error', `❌ Error al guardar línea: ${error.message}`);
       } else {
-        showFeedback('success', 'Configuración de línea guardada con éxito.');
+        showFeedback('success', '✅ Línea actualizada correctamente');
         setIsLineCreateModalOpen(false);
         loadData();
       }
     } else {
       const { data, error } = await supabase.from('lineas').insert([payload]).select();
       if (error) {
-        showFeedback('error', `Error al crear línea: ${error.message}`);
+        showFeedback('error', `❌ Error al guardar línea: ${error.message}`);
       } else {
-        showFeedback('success', 'Nueva línea creada con éxito.');
+        showFeedback('success', '✅ Línea creada correctamente');
         setIsLineCreateModalOpen(false);
         loadData();
         if (data && data[0]) {
@@ -498,6 +564,22 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
         }`}>
           <CheckCircle2 className="w-4 h-4" />
           <span>{feedbackMsg.text}</span>
+        </div>
+      )}
+
+      {/* Area Load Error Notification */}
+      {areaLoadError && (
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs font-bold text-amber-800 flex items-center justify-between shadow-sm">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-600" />
+            <span>No fue posible cargar las áreas</span>
+          </div>
+          <button
+            onClick={() => loadData()}
+            className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[11px] font-extrabold cursor-pointer transition-all"
+          >
+            Reintentar
+          </button>
         </div>
       )}
 
@@ -1269,9 +1351,17 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                     type="text"
                     placeholder="Ej. Línea 14"
                     value={lineForm.name}
-                    onChange={(e) => setLineForm({ ...lineForm, name: e.target.value })}
-                    className="w-full bg-white border border-[#DCE3EA] rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-[#005486] font-semibold"
+                    onChange={(e) => {
+                      setLineForm({ ...lineForm, name: e.target.value });
+                      if (formErrors.name) setFormErrors({ ...formErrors, name: undefined });
+                    }}
+                    className={`w-full bg-white border rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none font-semibold transition-all ${
+                      formErrors.name ? 'border-red-500 ring-2 ring-red-100' : 'border-[#DCE3EA] focus:border-[#005486]'
+                    }`}
                   />
+                  {formErrors.name && (
+                    <p className="text-[11px] font-bold text-red-500 mt-1">Ingrese el nombre de la línea</p>
+                  )}
                 </div>
 
                 {/* Área */}
@@ -1281,14 +1371,22 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                   </label>
                   <select
                     value={lineForm.area_id}
-                    onChange={(e) => setLineForm({ ...lineForm, area_id: e.target.value })}
-                    className="w-full bg-white border border-[#DCE3EA] rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-[#005486] font-semibold cursor-pointer"
+                    onChange={(e) => {
+                      setLineForm({ ...lineForm, area_id: e.target.value });
+                      if (formErrors.area_id) setFormErrors({ ...formErrors, area_id: undefined });
+                    }}
+                    className={`w-full bg-white border rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none font-semibold cursor-pointer transition-all ${
+                      formErrors.area_id ? 'border-red-500 ring-2 ring-red-100' : 'border-[#DCE3EA] focus:border-[#005486]'
+                    }`}
                   >
                     <option value="">Seleccione Área...</option>
                     {areas.map(a => (
                       <option key={a.id} value={a.id}>{a.name}</option>
                     ))}
                   </select>
+                  {formErrors.area_id && (
+                    <p className="text-[11px] font-bold text-red-500 mt-1">Seleccione un área</p>
+                  )}
                 </div>
 
                 {/* Proceso */}
