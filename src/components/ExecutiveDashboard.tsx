@@ -2,13 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { supabase, getActiveStaffingTarget, DEFAULT_SMT_LAYOUT, mapScanFromSupabase, calculateLineMetrics, getLineIntegrationTimeMinutes } from '../lib/supabaseClient';
 import { 
   Users, AlertTriangle, Clock, Percent, Search, Settings, ExternalLink, 
-  BarChart2, LineChart as LineChartIcon, PieChart as PieChartIcon, Layers, 
-  Save, Upload, CheckCircle2, Plus, X
+  BarChart2, Layers, Save, Upload, Plus, X, CheckCircle2
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  ResponsiveContainer, BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, 
-  XAxis, YAxis, Tooltip, Legend, CartesianGrid 
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid 
 } from 'recharts';
 
 interface ExecutiveDashboardProps {
@@ -33,7 +31,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
   const [rightPanelMode, setRightPanelMode] = useState<'analytics' | 'config'>('analytics');
 
   // Configuration Sub-Tab state
-  const [configSubTab, setConfigSubTab] = useState<'lines' | 'coverages' | 'layout' | 'registros'>('lines');
+  const [configSubTab, setConfigSubTab] = useState<'turnos' | 'layout' | 'coberturas' | 'registros'>('turnos');
   
   // Modal State for + Nueva Línea
   const [isLineCreateModalOpen, setIsLineCreateModalOpen] = useState(false);
@@ -60,21 +58,6 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
   // Drag & drop layout positions
   const [activeDraggingPosId, setActiveDraggingPosId] = useState<string | null>(null);
   const layoutRef = React.useRef<HTMLDivElement>(null);
-
-  // Dynamic Chart Visibility Toggles (PANEL DINÁMICO)
-  const [visibleCharts, setVisibleCharts] = useState({
-    downtime: true,
-    complianceTrend: true,
-    rampUpTime: true,
-    coverageHistory: true,
-    dailyDonut: true
-  });
-
-  // Analytics Filters
-  const [analyticsFilterLine, setAnalyticsFilterLine] = useState('ALL');
-  const [analyticsFilterShift, setAnalyticsFilterShift] = useState('ALL');
-  const [analyticsFilterPeriod, setAnalyticsFilterPeriod] = useState('HOY');
-  const [analyticsFilterDate, setAnalyticsFilterDate] = useState(new Date().toISOString().split('T')[0]);
 
   const [feedbackMsg, setFeedbackMsg] = useState<{ type: 'success' | 'error' | null; text: string }>({ type: null, text: '' });
   const [areaLoadError, setAreaLoadError] = useState(false);
@@ -380,13 +363,6 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
     });
   };
 
-  const handleRemovePositionFromCanvas = (code: string) => {
-    if (!selectedLineId) return;
-    setPosiciones(prev =>
-      prev.map(p => (p.line_id === selectedLineId && p.code === code) ? { ...p, placed: false } : p)
-    );
-  };
-
   const handleSavePositions = async () => {
     if (!selectedLineId) return;
     const { target: targetCount } = getActiveStaffingTarget(selectedLineId);
@@ -489,28 +465,6 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
     }
   };
 
-  // Reset all active shift scans for the selected line
-  const handleResetShiftScans = async () => {
-    if (!selectedLineId || !selectedLine) return;
-    if (!window.confirm(`¿Está seguro de reiniciar todos los escaneos del turno para ${selectedLine.name}? Todos los registros se eliminarán y la línea volverá a 0% / FALTA PERSONAL.`)) {
-      return;
-    }
-
-    try {
-      const { error: err1 } = await supabase.from('escaneos').delete().eq('line_id', selectedLineId);
-      const { error: err2 } = await supabase.from('lineas').update({ status: 'FALTA PERSONAL' }).eq('id', selectedLineId);
-
-      if (err1 || err2) {
-        showFeedback('error', `Error al reiniciar turno: ${(err1 || err2)?.message}`);
-      } else {
-        showFeedback('success', `✅ Turno reiniciado para ${selectedLine.name}. Todos los puntos pasaron a rojo (0%).`);
-        loadData();
-      }
-    } catch (err: any) {
-      showFeedback('error', `Error: ${err.message}`);
-    }
-  };
-
   // KPI Calculations
   let totalRequired = 0;
   let totalPresent = 0;
@@ -533,40 +487,24 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
     return matchesSearch && matchesArea;
   });
 
-  // Chart Data Preparation
-  const chartDowntimeData = lines.map(l => ({
+  // Chart Data Preparation (100% REAL DATA FROM SUPABASE)
+  const todayISO = new Date().toISOString().split('T')[0];
+
+  // 1. Tiempo Muerto Por Línea (Real from tiempos_muertos)
+  const chartDowntimeData = lines.map((l: any) => {
+    const lineDts = downtimes.filter((d: any) => d.line_id === l.id && d.date === todayISO);
+    const sumMin = lineDts.reduce((acc: number, d: any) => acc + (d.resolved ? (d.duration_minutes || 0) : getActiveDowntimeMinutes(l.id)), 0);
+    return {
+      name: l.name,
+      minutos: sumMin
+    };
+  });
+
+  // 2. Tiempo de Integración Por Línea (Real calculated from shift start to template completion)
+  const chartIntegrationTimeData = lines.map((l: any) => ({
     name: l.name,
-    minutos: getActiveDowntimeMinutes(l.id)
+    minutos: getLineIntegrationTimeMinutes(l, scans)
   }));
-
-  const chartComplianceTrendData = [
-    { hora: '06:00', meta: 100, cumplimiento: 75 },
-    { hora: '08:00', meta: 100, cumplimiento: 92 },
-    { hora: '10:00', meta: 100, cumplimiento: 100 },
-    { hora: '12:00', meta: 100, cumplimiento: 98 },
-    { hora: '14:00', meta: 100, cumplimiento: 88 },
-    { hora: '16:00', meta: 100, cumplimiento: 95 }
-  ];
-
-  const chartRampUpData = [
-    { dia: 'Lun', mins: 14 },
-    { dia: 'Mar', mins: 12 },
-    { dia: 'Mié', mins: 8 },
-    { dia: 'Jue', mins: 10 },
-    { dia: 'Vie', mins: 15 }
-  ];
-
-  const chartCoverageHistoryData = [
-    { turno: 'Turno 1', presentes: 18, coberturas: 4, ausentes: 2 },
-    { turno: 'Turno 2', presentes: 16, coberturas: 3, ausentes: 3 },
-    { turno: 'Turno 3', presentes: 12, coberturas: 1, ausentes: 4 }
-  ];
-
-  const chartDonutData = [
-    { name: 'Completo (100%)', value: 65, color: '#22C55E' },
-    { name: 'Atención (80-99%)', value: 20, color: '#EAB308' },
-    { name: 'Falta Personal (<80%)', value: 15, color: '#EF4444' }
-  ];
 
   const selectedLine = lines.find(l => l.id === selectedLineId);
   const activeCoverages = coverages.filter(c => c.line_id === selectedLineId);
@@ -630,21 +568,17 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                 setRightPanelMode('config');
               }
             }}
-            className={`w-full py-2 px-3 rounded-lg text-xs font-extrabold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-sm ${
-              rightPanelMode === 'config'
-                ? 'bg-[#005486] text-white'
-                : 'bg-[#F5F7FA] text-slate-700 hover:bg-slate-200 border border-[#DCE3EA]'
-            }`}
+            className="w-full h-full bg-[#005486] hover:bg-[#003f66] text-white font-extrabold px-3 py-1.5 rounded-lg text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer"
           >
             {rightPanelMode === 'config' ? (
               <>
                 <BarChart2 className="w-4 h-4" />
-                <span>Ver Área Analítica</span>
+                <span>Ver Analíticas y Gráficas</span>
               </>
             ) : (
               <>
-                <Settings className="w-4 h-4 text-[#005486]" />
-                <span>{selectedLineId ? 'Configuración Línea' : 'Seleccione Línea'}</span>
+                <Settings className="w-4 h-4" />
+                <span>Configurar Línea {selectedLine ? `(${selectedLine.name})` : ''}</span>
               </>
             )}
           </button>
@@ -877,194 +811,192 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                 {/* PROMINENT BUTTON: VER MONITOR OPERATIVO */}
                 <button
                   onClick={() => navigate(`/linea/${selectedLine.id}`)}
-                  className="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 text-white font-extrabold px-3.5 py-1.5 rounded-xl text-xs transition-all shadow-md cursor-pointer"
-                  title="Abrir vista operativa con layout visual, posiciones y escaneo"
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
                 >
-                  <ExternalLink className="w-4 h-4" />
+                  <ExternalLink className="w-3.5 h-3.5" />
                   <span>Ver Monitor Operativo</span>
                 </button>
 
                 <button
                   onClick={() => setRightPanelMode('analytics')}
-                  className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-bold transition-all cursor-pointer border border-white/20"
+                  className="p-1.5 text-white/80 hover:text-white rounded-lg hover:bg-white/10 transition-all cursor-pointer"
+                  title="Cerrar configuración"
                 >
-                  Cerrar
+                  <X className="w-5 h-5" />
                 </button>
               </div>
             </div>
 
           ) : (
 
-            /* MODE B: ANALYTICAL CENTER TOOLBAR */
-            <div className="p-3 border-b border-[#DCE3EA] bg-[#F5F7FA] flex flex-wrap items-center justify-between gap-3 shrink-0">
+            /* MODE B: ANALYTICS DASHBOARD HEADER */
+            <div className="p-3 bg-[#F5F7FA] border-b border-[#DCE3EA] flex items-center justify-between shrink-0">
               <div className="flex items-center space-x-2">
                 <BarChart2 className="w-4 h-4 text-[#005486]" />
-                <span className="text-xs font-black uppercase text-slate-800 tracking-wider">Centro Analítico MES</span>
+                <span className="text-xs font-black uppercase text-slate-800 tracking-wider">
+                  Analíticas Operativas de Planta
+                </span>
               </div>
-
-              {/* Analytics Global Filters */}
-              <div className="flex items-center flex-wrap gap-2 text-xs">
-                <select
-                  value={analyticsFilterLine}
-                  onChange={(e) => setAnalyticsFilterLine(e.target.value)}
-                  className="bg-white border border-[#DCE3EA] rounded-lg px-2 py-1 font-bold text-slate-700 focus:outline-none cursor-pointer"
-                >
-                  <option value="ALL">Todas las Líneas</option>
-                  {lines.map(l => (
-                    <option key={l.id} value={l.id}>{l.name}</option>
-                  ))}
-                </select>
-
-                <select
-                  value={analyticsFilterShift}
-                  onChange={(e) => setAnalyticsFilterShift(e.target.value)}
-                  className="bg-white border border-[#DCE3EA] rounded-lg px-2 py-1 font-bold text-slate-700 focus:outline-none cursor-pointer"
-                >
-                  <option value="ALL">Todos los Turnos</option>
-                  <option value="T1">Turno 1</option>
-                  <option value="T2">Turno 2</option>
-                  <option value="T3">Turno 3</option>
-                </select>
-
-                <select
-                  value={analyticsFilterPeriod}
-                  onChange={(e) => setAnalyticsFilterPeriod(e.target.value)}
-                  className="bg-white border border-[#DCE3EA] rounded-lg px-2 py-1 font-bold text-slate-700 focus:outline-none cursor-pointer"
-                >
-                  <option value="HOY">Hoy</option>
-                  <option value="SEMANA">Esta Semana</option>
-                  <option value="MES">Este Mes</option>
-                </select>
-
-                <input
-                  type="date"
-                  value={analyticsFilterDate}
-                  onChange={(e) => setAnalyticsFilterDate(e.target.value)}
-                  className="bg-white border border-[#DCE3EA] rounded-lg px-2 py-1 text-slate-700 font-mono focus:outline-none cursor-pointer"
-                />
-              </div>
+              <span className="text-[10px] text-slate-500 font-semibold">
+                Datos reales en vivo alimentados desde Supabase
+              </span>
             </div>
 
           )}
 
-          {/* RIGHT PANEL BODY */}
+          {/* MAIN BODY OF RIGHT PANEL */}
           <div className="flex-1 min-h-0 overflow-y-auto p-4">
             
-            {/* ============================================================ */}
-            {/* MODE A VIEW: INTEGRATED LINE CONFIGURATION FORM             */}
-            {/* ============================================================ */}
             {rightPanelMode === 'config' && selectedLine ? (
+              
+              /* CONFIGURATION TABS & BODY */
               <div className="space-y-4">
                 
-                {/* Configuration Sub-Tabs Header */}
-                <div className="h-10 border-b border-[#DCE3EA] flex items-center space-x-4 shrink-0">
+                {/* SUB-TABS NAVIGATION */}
+                <div className="flex items-center border-b border-[#DCE3EA] gap-2 font-mono font-bold text-xs">
                   <button
-                    onClick={() => setConfigSubTab('lines')}
-                    className={`text-xs font-bold uppercase tracking-wider h-full border-b-2 flex items-center cursor-pointer ${
-                      configSubTab === 'lines' ? 'border-[#005486] text-[#005486]' : 'border-transparent text-slate-500'
+                    onClick={() => setConfigSubTab('turnos')}
+                    className={`py-2 px-3 border-b-2 transition-all cursor-pointer ${
+                      configSubTab === 'turnos'
+                        ? 'border-[#005486] text-[#005486]'
+                        : 'border-transparent text-slate-500 hover:text-slate-800'
                     }`}
                   >
-                    Parámetros
+                    1. HORARIOS Y PLANTILLAS
                   </button>
                   <button
                     onClick={() => setConfigSubTab('layout')}
-                    className={`text-xs font-bold uppercase tracking-wider h-full border-b-2 flex items-center cursor-pointer ${
-                      configSubTab === 'layout' ? 'border-[#005486] text-[#005486]' : 'border-transparent text-slate-500'
+                    className={`py-2 px-3 border-b-2 transition-all cursor-pointer ${
+                      configSubTab === 'layout'
+                        ? 'border-[#005486] text-[#005486]'
+                        : 'border-transparent text-slate-500 hover:text-slate-800'
                     }`}
                   >
-                    Layout & Posiciones
+                    2. LAYOUT Y POSICIONES
                   </button>
                   <button
-                    onClick={() => setConfigSubTab('coverages')}
-                    className={`text-xs font-bold uppercase tracking-wider h-full border-b-2 flex items-center cursor-pointer ${
-                      configSubTab === 'coverages' ? 'border-[#005486] text-[#005486]' : 'border-transparent text-slate-500'
+                    onClick={() => setConfigSubTab('coberturas')}
+                    className={`py-2 px-3 border-b-2 transition-all cursor-pointer ${
+                      configSubTab === 'coberturas'
+                        ? 'border-[#005486] text-[#005486]'
+                        : 'border-transparent text-slate-500 hover:text-slate-800'
                     }`}
                   >
-                    Coberturas Comedor
+                    3. COBERTURA DE COMEDOR
                   </button>
                   <button
                     onClick={() => setConfigSubTab('registros')}
-                    className={`text-xs font-bold uppercase tracking-wider h-full border-b-2 flex items-center cursor-pointer ${
-                      configSubTab === 'registros' ? 'border-[#005486] text-[#005486]' : 'border-transparent text-slate-500'
+                    className={`py-2 px-3 border-b-2 transition-all cursor-pointer ${
+                      configSubTab === 'registros'
+                        ? 'border-[#005486] text-[#005486]'
+                        : 'border-transparent text-slate-500 hover:text-slate-800'
                     }`}
                   >
-                    Registros
+                    4. REGISTROS (HOY)
                   </button>
                 </div>
 
-                {/* SUB-TAB 1: PARAMETROS */}
-                {configSubTab === 'lines' && (
-                  <div className="space-y-4 text-xs">
-                    <div className="grid grid-cols-2 gap-3">
+                {/* SUB-TAB 1: HORARIOS Y PLANTILLAS */}
+                {configSubTab === 'turnos' && (
+                  <div className="space-y-3 text-xs">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div>
-                        <label className="block font-bold text-slate-600 uppercase mb-1">Nombre Línea</label>
+                        <label className="block text-[11px] font-bold text-slate-600 mb-1">Nombre de la Línea</label>
                         <input
                           type="text"
                           value={lineForm.name}
                           onChange={(e) => setLineForm({ ...lineForm, name: e.target.value })}
-                          className="w-full bg-[#F5F7FA] border border-[#DCE3EA] rounded-lg p-2 font-extrabold text-slate-800"
+                          className="w-full bg-[#F5F7FA] border border-[#DCE3EA] rounded-xl px-3 py-2 text-xs text-slate-800 font-bold focus:outline-none focus:border-[#005486]"
                         />
                       </div>
                       <div>
-                        <label className="block font-bold text-slate-600 uppercase mb-1">Área</label>
+                        <label className="block text-[11px] font-bold text-slate-600 mb-1">Área</label>
                         <select
                           value={lineForm.area_id}
                           onChange={(e) => setLineForm({ ...lineForm, area_id: e.target.value })}
-                          className="w-full bg-[#F5F7FA] border border-[#DCE3EA] rounded-lg p-2 font-bold text-slate-800"
+                          className="w-full bg-[#F5F7FA] border border-[#DCE3EA] rounded-xl px-3 py-2 text-xs text-slate-800 font-bold focus:outline-none cursor-pointer"
                         >
                           {areas.map(a => (
                             <option key={a.id} value={a.id}>{a.name}</option>
                           ))}
                         </select>
                       </div>
+                      <div className="col-span-2">
+                        <label className="block text-[11px] font-bold text-slate-600 mb-1">Proceso / Descripción</label>
+                        <input
+                          type="text"
+                          value={lineForm.process}
+                          onChange={(e) => setLineForm({ ...lineForm, process: e.target.value })}
+                          className="w-full bg-[#F5F7FA] border border-[#DCE3EA] rounded-xl px-3 py-2 text-xs text-slate-800 font-medium focus:outline-none focus:border-[#005486]"
+                        />
+                      </div>
                     </div>
 
-                    {/* Shifts targets */}
-                    <div className="bg-[#F5F7FA] border border-[#DCE3EA] p-3 rounded-xl space-y-3">
-                      <span className="font-extrabold uppercase text-[#005486] text-[11px] block">Metas de Operadores por Turno</span>
-                      <div className="grid grid-cols-3 gap-2">
+                    <div className="border border-[#DCE3EA] rounded-xl p-3 bg-[#F5F7FA] space-y-2">
+                      <span className="font-extrabold text-[#005486] uppercase tracking-wider text-[11px] block font-mono">
+                        Configuración de Turnos y Meta de Plantilla
+                      </span>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                         <div className="bg-white p-2.5 rounded-lg border border-[#DCE3EA]">
-                          <span className="font-bold block mb-1">Turno 1</span>
+                          <span className="font-bold text-slate-700 block mb-1">Turno 1 (Primero)</span>
+                          <label className="text-[10px] text-slate-500 block">Hora Inicio</label>
+                          <input
+                            type="time"
+                            value={lineForm.shift1_start}
+                            onChange={(e) => setLineForm({ ...lineForm, shift1_start: e.target.value })}
+                            className="w-full bg-[#F5F7FA] border border-[#DCE3EA] rounded p-1 mb-2 font-mono text-xs"
+                          />
+                          <label className="text-[10px] text-slate-500 block">Plantilla Requerida</label>
                           <input
                             type="number"
                             min="1"
                             value={lineForm.shift1_target}
                             onChange={(e) => setLineForm({ ...lineForm, shift1_target: Number(e.target.value) })}
-                            className="w-full bg-[#F5F7FA] border border-[#DCE3EA] rounded p-1 font-mono font-bold"
+                            className="w-full bg-[#F5F7FA] border border-[#DCE3EA] rounded p-1 font-mono font-bold text-xs"
                           />
                         </div>
+
                         <div className="bg-white p-2.5 rounded-lg border border-[#DCE3EA]">
-                          <span className="font-bold block mb-1">Turno 2</span>
+                          <span className="font-bold text-slate-700 block mb-1">Turno 2 (Segundo)</span>
+                          <label className="text-[10px] text-slate-500 block">Hora Inicio</label>
+                          <input
+                            type="time"
+                            value={lineForm.shift2_start}
+                            onChange={(e) => setLineForm({ ...lineForm, shift2_start: e.target.value })}
+                            className="w-full bg-[#F5F7FA] border border-[#DCE3EA] rounded p-1 mb-2 font-mono text-xs"
+                          />
+                          <label className="text-[10px] text-slate-500 block">Plantilla Requerida</label>
                           <input
                             type="number"
                             min="1"
                             value={lineForm.shift2_target}
                             onChange={(e) => setLineForm({ ...lineForm, shift2_target: Number(e.target.value) })}
-                            className="w-full bg-[#F5F7FA] border border-[#DCE3EA] rounded p-1 font-mono font-bold"
+                            className="w-full bg-[#F5F7FA] border border-[#DCE3EA] rounded p-1 font-mono font-bold text-xs"
                           />
                         </div>
+
                         <div className="bg-white p-2.5 rounded-lg border border-[#DCE3EA]">
-                          <span className="font-bold block mb-1">Turno 3</span>
+                          <span className="font-bold text-slate-700 block mb-1">Turno 3 (Tercero)</span>
+                          <label className="text-[10px] text-slate-500 block">Hora Inicio</label>
+                          <input
+                            type="time"
+                            value={lineForm.shift3_start}
+                            onChange={(e) => setLineForm({ ...lineForm, shift3_start: e.target.value })}
+                            className="w-full bg-[#F5F7FA] border border-[#DCE3EA] rounded p-1 mb-2 font-mono text-xs"
+                          />
+                          <label className="text-[10px] text-slate-500 block">Plantilla Requerida</label>
                           <input
                             type="number"
                             min="1"
                             value={lineForm.shift3_target}
                             onChange={(e) => setLineForm({ ...lineForm, shift3_target: Number(e.target.value) })}
-                            className="w-full bg-[#F5F7FA] border border-[#DCE3EA] rounded p-1 font-mono font-bold"
+                            className="w-full bg-[#F5F7FA] border border-[#DCE3EA] rounded p-1 font-mono font-bold text-xs"
                           />
                         </div>
                       </div>
                     </div>
 
-                    <div className="flex justify-between items-center pt-2">
-                      <button
-                        onClick={() => navigate(`/linea/${selectedLine.id}`)}
-                        className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2 rounded-xl text-xs shadow-sm cursor-pointer"
-                      >
-                        <ExternalLink className="w-4 h-4" />
-                        <span>Ver Monitor Operativo</span>
-                      </button>
-
+                    <div className="flex justify-end pt-2">
                       <button
                         onClick={handleSaveLine}
                         className="flex items-center gap-1.5 bg-[#005486] hover:bg-[#00426a] text-white font-bold px-5 py-2 rounded-xl text-xs shadow-sm cursor-pointer"
@@ -1076,7 +1008,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                   </div>
                 )}
 
-                {/* SUB-TAB 2: LAYOUT & POSICIONES OPERATIVAS */}
+                {/* SUB-TAB 2: LAYOUT Y POSICIONES OPERATIVAS */}
                 {configSubTab === 'layout' && (() => {
                   const targetCount = Math.max(1, getActiveStaffingTarget(selectedLineId || '').target || selectedLine.shift1_target || 6);
                   const targetPosCodes = Array.from({ length: targetCount }, (_, i) => `POS${String(i + 1).padStart(2, '0')}`);
@@ -1087,7 +1019,6 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
 
                   return (
                     <div className="space-y-3 text-xs">
-                      {/* Header Controls */}
                       <div className="flex flex-wrap items-center justify-between gap-2 bg-[#F5F7FA] p-3 rounded-xl border border-[#DCE3EA]">
                         <div className="flex items-center gap-2">
                           <label className="flex items-center gap-1.5 bg-white hover:bg-slate-100 text-[#005486] font-bold px-3 py-1.5 rounded-xl border border-[#DCE3EA] cursor-pointer shadow-sm transition-all">
@@ -1109,7 +1040,6 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                         </button>
                       </div>
 
-                      {/* Unplaced Positions Workbench Drawer */}
                       {unplacedCodes.length > 0 && (
                         <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-2">
                           <div className="flex items-center justify-between">
@@ -1135,7 +1065,6 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                         </div>
                       )}
 
-                      {/* Drag Canvas */}
                       <div 
                         ref={layoutRef}
                         onMouseMove={handleCanvasMouseMove}
@@ -1149,26 +1078,24 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                         />
                         {currentLinePlacedPos.map((pos) => (
                           <div
-                            key={pos.id || pos.code}
-                            style={{ left: `${pos.x_percent}%`, top: `${pos.y_percent}%`, transform: 'translate(-50%, -50%)' }}
-                            onMouseDown={() => setActiveDraggingPosId(pos.id || pos.code)}
-                            className="absolute z-20 cursor-move group"
+                            key={pos.id}
+                            onMouseDown={(e) => {
+                              e.stopPropagation();
+                              setActiveDraggingPosId(pos.id);
+                            }}
+                            style={{
+                              left: `${pos.x_percent}%`,
+                              top: `${pos.y_percent}%`,
+                              transform: 'translate(-50%, -50%)'
+                            }}
+                            className="absolute cursor-move z-20 transition-transform hover:scale-125 group"
                           >
-                            {/* Minimal Icon Node: ● POS01 */}
-                            <div className="flex items-center gap-1 bg-white/95 backdrop-blur-sm border-2 border-[#005486] text-[#005486] px-2 py-0.5 rounded-full shadow-lg text-[10px] font-black font-mono tracking-wider group-hover:scale-110 transition-transform">
-                              <span className="w-2 h-2 rounded-full bg-[#005486]" />
-                              <span>{pos.code}</span>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleRemovePositionFromCanvas(pos.code);
-                                }}
-                                className="ml-1 text-slate-400 hover:text-red-500 font-extrabold text-[10px] transition-colors"
-                                title="Quitar del plano"
-                              >
-                                ✕
-                              </button>
+                            <div className="w-7 h-7 rounded-full bg-[#EF4444] border-2 border-white shadow-lg flex items-center justify-center text-white font-mono font-black text-[10px]">
+                              {pos.code.replace('POS', '')}
                             </div>
+                            <span className="absolute -bottom-4 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[8px] font-mono px-1 rounded opacity-0 group-hover:opacity-100 transition-opacity">
+                              {pos.code}
+                            </span>
                           </div>
                         ))}
                       </div>
@@ -1176,71 +1103,114 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                   );
                 })()}
 
-                {/* SUB-TAB 3: COBERTURAS COMEDOR */}
-                {configSubTab === 'coverages' && (
-                  <div className="space-y-4 text-xs">
+                {/* SUB-TAB 3: COBERTURA DE COMEDOR */}
+                {configSubTab === 'coberturas' && (
+                  <div className="space-y-3 text-xs">
                     <div className="bg-[#F5F7FA] p-3 rounded-xl border border-[#DCE3EA] space-y-2">
-                      <span className="font-bold text-[#005486] uppercase block text-[11px]">Agregar Horario de Comedor</span>
-                      <div className="grid grid-cols-3 gap-2">
-                        <input
-                          type="time"
-                          value={covForm.start_time}
-                          onChange={(e) => setCovForm({ ...covForm, start_time: e.target.value })}
-                          className="bg-white border border-[#DCE3EA] rounded p-1.5"
-                        />
-                        <input
-                          type="time"
-                          value={covForm.end_time}
-                          onChange={(e) => setCovForm({ ...covForm, end_time: e.target.value })}
-                          className="bg-white border border-[#DCE3EA] rounded p-1.5"
-                        />
-                        <input
-                          type="number"
-                          value={covForm.required_operators}
-                          onChange={(e) => setCovForm({ ...covForm, required_operators: Number(e.target.value) })}
-                          className="bg-white border border-[#DCE3EA] rounded p-1.5 font-mono font-bold"
-                        />
+                      <span className="font-extrabold text-[#005486] uppercase tracking-wider text-[11px] block font-mono">
+                        Agregar Ventana Horaria de Comedor
+                      </span>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                        <div>
+                          <label className="text-[10px] text-slate-500 font-bold block mb-1">Hora Inicio</label>
+                          <input
+                            type="time"
+                            value={covForm.start_time}
+                            onChange={(e) => setCovForm({ ...covForm, start_time: e.target.value })}
+                            className="w-full bg-white border border-[#DCE3EA] rounded p-1.5 font-mono text-xs"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-slate-500 font-bold block mb-1">Hora Fin</label>
+                          <input
+                            type="time"
+                            value={covForm.end_time}
+                            onChange={(e) => setCovForm({ ...covForm, end_time: e.target.value })}
+                            className="w-full bg-white border border-[#DCE3EA] rounded p-1.5 font-mono text-xs"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-slate-500 font-bold block mb-1">Operadores Requeridos</label>
+                          <div className="flex gap-2">
+                            <input
+                              type="number"
+                              min="1"
+                              value={covForm.required_operators}
+                              onChange={(e) => setCovForm({ ...covForm, required_operators: Number(e.target.value) })}
+                              className="w-full bg-white border border-[#DCE3EA] rounded p-1.5 font-mono font-bold text-xs"
+                            />
+                            <button
+                              onClick={handleSaveCoverage}
+                              className="bg-[#005486] hover:bg-[#003f66] text-white px-3 py-1.5 rounded-lg font-bold text-xs shrink-0 cursor-pointer"
+                            >
+                              + Agregar
+                            </button>
+                          </div>
+                        </div>
                       </div>
-                      <button
-                        onClick={handleSaveCoverage}
-                        className="w-full bg-[#005486] text-white font-bold py-1.5 rounded-lg shadow-sm cursor-pointer"
-                      >
-                        Guardar Regla Cobertura
-                      </button>
                     </div>
 
-                    <div className="space-y-1">
-                      {activeCoverages.map(cov => (
-                        <div key={cov.id} className="p-2 bg-[#F5F7FA] border border-[#DCE3EA] rounded-lg font-mono font-bold">
-                          {cov.start_time} - {cov.end_time} | Target: {cov.required_operators} op
-                        </div>
-                      ))}
+                    <div className="border border-[#DCE3EA] rounded-xl overflow-hidden shadow-sm bg-white">
+                      <table className="w-full text-left border-collapse">
+                        <thead className="bg-[#F5F7FA] border-b border-[#DCE3EA] text-[10px] font-black uppercase text-slate-600 tracking-wider">
+                          <tr>
+                            <th className="py-2 px-3">Inicio</th>
+                            <th className="py-2 px-3">Fin</th>
+                            <th className="py-2 px-3">Requeridos</th>
+                            <th className="py-2 px-3 text-right">Acción</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#DCE3EA]">
+                          {activeCoverages.length === 0 ? (
+                            <tr>
+                              <td colSpan={4} className="py-4 text-center text-slate-400 font-semibold italic">
+                                No hay ventanas de comedor configuradas para esta línea.
+                              </td>
+                            </tr>
+                          ) : (
+                            activeCoverages.map(c => (
+                              <tr key={c.id} className="hover:bg-[#F5F7FA]">
+                                <td className="py-2 px-3 font-mono font-bold text-slate-800">{c.start_time}</td>
+                                <td className="py-2 px-3 font-mono font-bold text-slate-800">{c.end_time}</td>
+                                <td className="py-2 px-3 font-mono font-bold text-[#005486]">{c.required_operators} op</td>
+                                <td className="py-2 px-3 text-right">
+                                  <button
+                                    onClick={async () => {
+                                      await supabase.from('coberturas').delete().eq('id', c.id);
+                                      showFeedback('success', 'Cobertura eliminada.');
+                                      loadData();
+                                    }}
+                                    className="p-1 hover:bg-red-100 text-red-600 rounded transition-all cursor-pointer"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
                 )}
 
-                {/* SUB-TAB 4: REGISTROS DE ESCANEO */}
+                {/* SUB-TAB 4: REGISTROS DE ESCANEO (HOY ÚNICAMENTE) */}
                 {configSubTab === 'registros' && (
                   <div className="space-y-3 text-xs">
                     <div className="flex items-center justify-between bg-[#F5F7FA] p-3 rounded-xl border border-[#DCE3EA] flex-wrap gap-2">
                       <div className="flex items-center gap-2">
                         <Clock className="w-4 h-4 text-[#005486]" />
                         <span className="font-extrabold text-[#005486] uppercase tracking-wider text-[11px] font-mono">
-                          Historial de Escaneos — {selectedLine.name}
+                          Historial de Escaneos (HOY) — {selectedLine.name}
                         </span>
                         <span className="text-[10px] text-slate-500 font-bold font-mono bg-white px-2 py-0.5 rounded border border-[#DCE3EA]">
-                          {scans.filter((s: any) => s.line_id === selectedLineId).length} registros
+                          {scans.filter((s: any) => {
+                            if (s.line_id !== selectedLineId) return false;
+                            const scanDate = new Date(s.scan_time || s.created_at || s.event_time || 0);
+                            return scanDate.toISOString().split('T')[0] === todayISO;
+                          }).length} registros hoy
                         </span>
                       </div>
-
-                      {/* Botón Reiniciar Turno (Admin / Supervisor) */}
-                      <button
-                        onClick={handleResetShiftScans}
-                        className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-xs font-black uppercase flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
-                        title="Reiniciar todos los registros del turno activo para esta línea"
-                      >
-                        <span>🔄 Reiniciar Turno</span>
-                      </button>
                     </div>
 
                     <div className="border border-[#DCE3EA] rounded-xl overflow-hidden shadow-sm bg-white max-h-[380px] overflow-y-auto">
@@ -1249,65 +1219,51 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                           <tr>
                             <th className="py-2.5 px-3">Número Empleado</th>
                             <th className="py-2.5 px-3">Hora</th>
-                            <th className="py-2.5 px-3">Fecha</th>
-                            <th className="py-2.5 px-3">Turno</th>
                             <th className="py-2.5 px-3">Tipo Evento</th>
                             <th className="py-2.5 px-3 text-right">Acción</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-[#DCE3EA] text-xs">
                           {(() => {
-                            const lineScans = scans
-                              .filter((s: any) => s.line_id === selectedLineId)
+                            const lineScansToday = scans
+                              .filter((s: any) => {
+                                if (s.line_id !== selectedLineId) return false;
+                                const scanDate = new Date(s.scan_time || s.created_at || s.event_time || 0);
+                                return scanDate.toISOString().split('T')[0] === todayISO;
+                              })
                               .sort((a: any, b: any) => new Date(b.scan_time || b.created_at || b.event_time || 0).getTime() - new Date(a.scan_time || a.created_at || a.event_time || 0).getTime());
 
-                            if (lineScans.length === 0) {
+                            if (lineScansToday.length === 0) {
                               return (
                                 <tr>
-                                  <td colSpan={6} className="py-8 text-center text-slate-400 font-semibold italic">
-                                    No hay escaneos registrados para esta línea.
+                                  <td colSpan={4} className="py-8 text-center text-slate-400 font-semibold italic">
+                                    No hay escaneos registrados hoy para esta línea.
                                   </td>
                                 </tr>
                               );
                             }
 
-                            return lineScans.map((s: any) => {
+                            return lineScansToday.map((s: any) => {
                               const dt = new Date(s.scan_time || s.created_at || s.event_time);
-                              const isValidDate = !isNaN(dt.getTime());
-                              const timeStr = isValidDate ? dt.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '--:--:--';
-                              const dateStr = isValidDate ? dt.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Hoy';
+                              const timeStr = !isNaN(dt.getTime()) ? dt.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '--:--:--';
                               const empNum = s.employee_number || s.badge_id || 'N/A';
                               const eventType = s.event_type || 'TURN_START';
-                              const shiftName = s.shift || 'Turno 1';
 
                               return (
-                                <tr key={s.id || `${empNum}-${dt.getTime()}`} className="hover:bg-[#F5F7FA] transition-colors">
-                                  <td className="py-2.5 px-3 font-mono font-extrabold text-[#005486]">
-                                    {empNum}
-                                  </td>
-                                  <td className="py-2.5 px-3 font-mono text-slate-800 font-bold">
-                                    {timeStr}
-                                  </td>
-                                  <td className="py-2.5 px-3 text-slate-600 font-semibold">
-                                    {dateStr}
-                                  </td>
-                                  <td className="py-2.5 px-3 text-slate-600 font-bold">
-                                    {shiftName}
-                                  </td>
+                                <tr key={s.id} className="hover:bg-[#F5F7FA] transition-colors">
+                                  <td className="py-2.5 px-3 font-mono font-extrabold text-[#005486]">{empNum}</td>
+                                  <td className="py-2.5 px-3 font-mono text-slate-800 font-bold">{timeStr}</td>
                                   <td className="py-2.5 px-3">
-                                    <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase ${
-                                      eventType === 'MEAL_COVERAGE' ? 'bg-blue-100 text-blue-700 border border-blue-200' : 'bg-emerald-100 text-emerald-700 border border-emerald-200'
-                                    }`}>
+                                    <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase ${eventType === 'MEAL_COVERAGE' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
                                       {eventType}
                                     </span>
                                   </td>
                                   <td className="py-2.5 px-3 text-right">
                                     <button
                                       onClick={() => handleDeleteScan(s.id)}
-                                      className="px-2 py-1 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-lg text-[10px] font-bold cursor-pointer transition-all inline-flex items-center gap-1"
-                                      title="Eliminar este registro de escaneo"
+                                      className="p-1 hover:bg-red-100 text-red-600 rounded transition-all cursor-pointer"
                                     >
-                                      <span>🗑 Eliminar</span>
+                                      <X className="w-3.5 h-3.5" />
                                     </button>
                                   </td>
                                 </tr>
@@ -1321,204 +1277,58 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                 )}
 
               </div>
+
             ) : (
 
-              /* ============================================================ */
-              /* MODE B VIEW: OPERATIONAL ANALYTICS DASHBOARD WITH CHARTS   */
-              /* ============================================================ */
+              /* ANALYTICS DASHBOARD CANVAS (REAL CHARTS FROM SUPABASE ONLY) */
               <div className="space-y-4">
                 
-                {/* PANEL DINÁMICO: Dynamic Chart Visibility Customizer Checkboxes */}
-                <div className="bg-[#F5F7FA] border border-[#DCE3EA] p-3 rounded-xl space-y-2">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block">
-                    ⚡ Panel Dinámico: Seleccione los gráficos a visualizar
-                  </span>
-
-                  <div className="flex flex-wrap items-center gap-4 text-xs font-bold text-slate-700">
-                    <label className="flex items-center gap-1.5 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={visibleCharts.downtime}
-                        onChange={(e) => setVisibleCharts({ ...visibleCharts, downtime: e.target.checked })}
-                        className="accent-[#005486]"
-                      />
-                      <span>Tiempo Muerto</span>
-                    </label>
-
-                    <label className="flex items-center gap-1.5 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={visibleCharts.complianceTrend}
-                        onChange={(e) => setVisibleCharts({ ...visibleCharts, complianceTrend: e.target.checked })}
-                        className="accent-[#005486]"
-                      />
-                      <span>Cumplimiento %</span>
-                    </label>
-
-                    <label className="flex items-center gap-1.5 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={visibleCharts.rampUpTime}
-                        onChange={(e) => setVisibleCharts({ ...visibleCharts, rampUpTime: e.target.checked })}
-                        className="accent-[#005486]"
-                      />
-                      <span>Tiempo Integración</span>
-                    </label>
-
-                    <label className="flex items-center gap-1.5 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={visibleCharts.coverageHistory}
-                        onChange={(e) => setVisibleCharts({ ...visibleCharts, coverageHistory: e.target.checked })}
-                        className="accent-[#005486]"
-                      />
-                      <span>Historial Cobertura</span>
-                    </label>
-
-                    <label className="flex items-center gap-1.5 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={visibleCharts.dailyDonut}
-                        onChange={(e) => setVisibleCharts({ ...visibleCharts, dailyDonut: e.target.checked })}
-                        className="accent-[#005486]"
-                      />
-                      <span>Cumplimiento Diario</span>
-                    </label>
-                  </div>
-                </div>
-
-                {/* CHARTS GRID (Auto-Reorganizes Based on Active Toggles) */}
+                {/* CHARTS GRID WITH REAL DATA ONLY */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   
-                  {/* CHART 1: Tiempo Muerto Por Línea (Bar Chart) */}
-                  {visibleCharts.downtime && (
-                    <div className="bg-white border border-[#DCE3EA] p-4 rounded-xl shadow-sm flex flex-col justify-between">
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                          <BarChart2 className="w-4 h-4 text-amber-600" />
-                          1. Tiempo Muerto Por Línea (min)
-                        </h4>
-                      </div>
-                      <div className="h-48 w-full">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={chartDowntimeData}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
-                            <XAxis dataKey="name" stroke="#64748B" fontSize={10} />
-                            <YAxis stroke="#64748B" fontSize={10} />
-                            <Tooltip />
-                            <Bar dataKey="minutos" fill="#D97706" radius={[4, 4, 0, 0]} />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
+                  {/* CHART 1: Tiempo Muerto Por Línea (Real Bar Chart) */}
+                  <div className="bg-white border border-[#DCE3EA] p-4 rounded-xl shadow-sm flex flex-col justify-between">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                        <BarChart2 className="w-4 h-4 text-amber-600" />
+                        1. Tiempo Muerto Por Línea (min)
+                      </h4>
+                      <span className="text-[10px] text-slate-400 font-mono">Supabase Realtime</span>
                     </div>
-                  )}
+                    <div className="h-52 w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={chartDowntimeData}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
+                          <XAxis dataKey="name" stroke="#64748B" fontSize={10} />
+                          <YAxis stroke="#64748B" fontSize={10} />
+                          <Tooltip />
+                          <Bar dataKey="minutos" fill="#D97706" radius={[4, 4, 0, 0]} name="Minutos Tiempo Muerto" />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
 
-                  {/* CHART 2: Tendencia de Cumplimiento (Line Chart: Meta vs Real) */}
-                  {visibleCharts.complianceTrend && (
-                    <div className="bg-white border border-[#DCE3EA] p-4 rounded-xl shadow-sm flex flex-col justify-between">
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                          <LineChartIcon className="w-4 h-4 text-[#005486]" />
-                          2. Tendencia de Cumplimiento (%)
-                        </h4>
-                      </div>
-                      <div className="h-48 w-full">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <LineChart data={chartComplianceTrendData}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
-                            <XAxis dataKey="hora" stroke="#64748B" fontSize={10} />
-                            <YAxis domain={[0, 110]} stroke="#64748B" fontSize={10} />
-                            <Tooltip />
-                            <Legend />
-                            <Line type="monotone" dataKey="meta" stroke="#94A3B8" strokeDasharray="5 5" name="Meta Target" />
-                            <Line type="monotone" dataKey="cumplimiento" stroke="#005486" strokeWidth={2} name="Cumplimiento Real" />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      </div>
+                  {/* CHART 2: Tiempo de Integración Por Línea (Real Bar Chart) */}
+                  <div className="bg-white border border-[#DCE3EA] p-4 rounded-xl shadow-sm flex flex-col justify-between">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                        <Clock className="w-4 h-4 text-emerald-600" />
+                        2. Tiempo Integración Por Línea (min)
+                      </h4>
+                      <span className="text-[10px] text-slate-400 font-mono">Turno Activo</span>
                     </div>
-                  )}
-
-                  {/* CHART 3: Tiempo Para Completar Plantilla (Line Ramp Up Chart) */}
-                  {visibleCharts.rampUpTime && (
-                    <div className="bg-white border border-[#DCE3EA] p-4 rounded-xl shadow-sm flex flex-col justify-between">
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                          <Clock className="w-4 h-4 text-emerald-600" />
-                          3. Tiempo Integración Plantilla (min)
-                        </h4>
-                      </div>
-                      <div className="h-48 w-full">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <LineChart data={chartRampUpData}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
-                            <XAxis dataKey="dia" stroke="#64748B" fontSize={10} />
-                            <YAxis stroke="#64748B" fontSize={10} />
-                            <Tooltip />
-                            <Line type="monotone" dataKey="mins" stroke="#10B981" strokeWidth={2} name="Minutos Integración" />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      </div>
+                    <div className="h-52 w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={chartIntegrationTimeData}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
+                          <XAxis dataKey="name" stroke="#64748B" fontSize={10} />
+                          <YAxis stroke="#64748B" fontSize={10} />
+                          <Tooltip />
+                          <Bar dataKey="minutos" fill="#059669" radius={[4, 4, 0, 0]} name="Minutos Integración" />
+                        </BarChart>
+                      </ResponsiveContainer>
                     </div>
-                  )}
-
-                  {/* CHART 4: Historial de Cobertura (Stacked Bar Chart) */}
-                  {visibleCharts.coverageHistory && (
-                    <div className="bg-white border border-[#DCE3EA] p-4 rounded-xl shadow-sm flex flex-col justify-between">
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                          <Layers className="w-4 h-4 text-blue-600" />
-                          4. Historial de Cobertura por Turno
-                        </h4>
-                      </div>
-                      <div className="h-48 w-full">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={chartCoverageHistoryData}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
-                            <XAxis dataKey="turno" stroke="#64748B" fontSize={10} />
-                            <YAxis stroke="#64748B" fontSize={10} />
-                            <Tooltip />
-                            <Legend />
-                            <Bar dataKey="presentes" stackId="a" fill="#22C55E" name="Presentes" />
-                            <Bar dataKey="coberturas" stackId="a" fill="#3B82F6" name="Coberturas" />
-                            <Bar dataKey="ausentes" stackId="a" fill="#EF4444" name="Ausentes" />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* CHART 5: Cumplimiento Diario (Donut Chart) */}
-                  {visibleCharts.dailyDonut && (
-                    <div className="col-span-1 md:col-span-2 bg-white border border-[#DCE3EA] p-4 rounded-xl shadow-sm flex flex-col justify-between">
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                          <PieChartIcon className="w-4 h-4 text-purple-600" />
-                          5. Distribución de Cumplimiento Diario (Donut Chart)
-                        </h4>
-                      </div>
-                      <div className="h-48 w-full flex items-center justify-center">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <PieChart>
-                            <Pie
-                              data={chartDonutData}
-                              cx="50%"
-                              cy="50%"
-                              innerRadius={45}
-                              outerRadius={75}
-                              paddingAngle={4}
-                              dataKey="value"
-                            >
-                              {chartDonutData.map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill={entry.color} />
-                              ))}
-                            </Pie>
-                            <Tooltip />
-                            <Legend />
-                          </PieChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
-                  )}
+                  </div>
 
                 </div>
 
