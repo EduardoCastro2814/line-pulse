@@ -365,7 +365,11 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
   if (!isOpen || !line) return null;
 
   // Active Staffing Target & Coverage Calculations
-  const { target, isCoverageActive, activeShiftName } = getActiveStaffingTarget(line.id);
+  const configuredPositionsCount = posiciones.length;
+  const { target: shiftTarget, isCoverageActive, activeShiftName } = getActiveStaffingTarget(line.id);
+  const target = isCoverageActive 
+    ? shiftTarget 
+    : (configuredPositionsCount > 0 ? configuredPositionsCount : (shiftTarget > 0 ? shiftTarget : 6));
 
   // Group scans for current active shift / distinct employees
   const distinctScannedEmployees = Array.from(

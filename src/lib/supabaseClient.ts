@@ -568,6 +568,16 @@ export const getActiveStaffingTarget = (lineId: string): { target: number; isCov
     }
   }
 
+  // Fallback if normalTarget is 0 or undefined
+  if (!normalTarget || normalTarget <= 0) {
+    const posiciones = loadTable('posiciones').filter(p => p.line_id === lineId);
+    if (posiciones.length > 0) {
+      normalTarget = posiciones.length;
+    } else {
+      normalTarget = 6;
+    }
+  }
+
   return { target: normalTarget, isCoverageActive: false, activeShiftName };
 };
 

@@ -414,6 +414,64 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
     }
   };
 
+  // Delete individual scan record
+  const handleDeleteScan = async (scanId: string) => {
+    if (!scanId) return;
+    try {
+      const { error } = await supabase.from('escaneos').delete().eq('id', scanId);
+      if (error) {
+        showFeedback('error', `Error al borrar registro: ${error.message}`);
+      } else {
+        showFeedback('success', '✅ Registro de escaneo eliminado. Posición liberada (🟢 -> 🔴).');
+        
+        // Recalculate line status after deletion
+        if (selectedLineId) {
+          const remainingScans = scans.filter(s => s.id !== scanId && s.line_id === selectedLineId);
+          const distinctRemaining = new Set(remainingScans.map(s => s.employee_number || s.badge_id).filter(Boolean)).size;
+          const { target, isCoverageActive } = getActiveStaffingTarget(selectedLineId);
+          const newPct = target > 0 ? Math.round((distinctRemaining / target) * 100) : 0;
+
+          let newStatus = 'FALTA PERSONAL';
+          if (isCoverageActive) {
+            newStatus = 'COBERTURA DE COMEDOR';
+          } else if (newPct >= 100) {
+            newStatus = 'PLANTILLA COMPLETA';
+          } else if (newPct > 0) {
+            newStatus = 'INTEGRANDO PERSONAL';
+          }
+
+          await supabase.from('lineas').update({ status: newStatus }).eq('id', selectedLineId);
+        }
+
+        loadData();
+      }
+    } catch (err: any) {
+      showFeedback('error', `Error: ${err.message}`);
+    }
+  };
+
+  // Reset all active shift scans for the selected line
+  const handleResetShiftScans = async () => {
+    if (!selectedLineId || !selectedLine) return;
+    if (!window.confirm(`¿Está seguro de reiniciar todos los escaneos del turno para ${selectedLine.name}? Todos los registros se eliminarán y la línea volverá a 0% / FALTA PERSONAL.`)) {
+      return;
+    }
+
+    try {
+      const { error: err1 } = await supabase.from('escaneos').delete().eq('line_id', selectedLineId);
+      const { error: err2 } = await supabase.from('lineas').update({ status: 'FALTA PERSONAL' }).eq('id', selectedLineId);
+
+      if (err1 || err2) {
+        showFeedback('error', `Error al reiniciar turno: ${(err1 || err2)?.message}`);
+      } else {
+        showFeedback('success', `✅ Turno reiniciado para ${selectedLine.name}. Todos los puntos pasaron a rojo (0%).`);
+        loadData();
+      }
+    } catch (err: any) {
+      showFeedback('error', `Error: ${err.message}`);
+    }
+  };
+
   // KPI Calculations
   let totalRequired = 0;
   let totalPresent = 0;
@@ -1129,25 +1187,37 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                 {/* SUB-TAB 4: REGISTROS DE ESCANEO */}
                 {configSubTab === 'registros' && (
                   <div className="space-y-3 text-xs">
-                    <div className="flex items-center justify-between bg-[#F5F7FA] p-3 rounded-xl border border-[#DCE3EA]">
-                      <span className="font-extrabold text-[#005486] uppercase tracking-wider text-[11px] flex items-center gap-1.5 font-mono">
+                    <div className="flex items-center justify-between bg-[#F5F7FA] p-3 rounded-xl border border-[#DCE3EA] flex-wrap gap-2">
+                      <div className="flex items-center gap-2">
                         <Clock className="w-4 h-4 text-[#005486]" />
-                        Historial de Escaneos — {selectedLine.name}
-                      </span>
-                      <span className="text-[10px] text-slate-500 font-bold font-mono">
-                        Total: {scans.filter((s: any) => s.line_id === selectedLineId).length} registros
-                      </span>
+                        <span className="font-extrabold text-[#005486] uppercase tracking-wider text-[11px] font-mono">
+                          Historial de Escaneos — {selectedLine.name}
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-bold font-mono bg-white px-2 py-0.5 rounded border border-[#DCE3EA]">
+                          {scans.filter((s: any) => s.line_id === selectedLineId).length} registros
+                        </span>
+                      </div>
+
+                      {/* Botón Reiniciar Turno (Admin / Supervisor) */}
+                      <button
+                        onClick={handleResetShiftScans}
+                        className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-xs font-black uppercase flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                        title="Reiniciar todos los registros del turno activo para esta línea"
+                      >
+                        <span>🔄 Reiniciar Turno</span>
+                      </button>
                     </div>
 
-                    <div className="border border-[#DCE3EA] rounded-xl overflow-hidden shadow-sm bg-white max-h-[360px] overflow-y-auto">
+                    <div className="border border-[#DCE3EA] rounded-xl overflow-hidden shadow-sm bg-white max-h-[380px] overflow-y-auto">
                       <table className="w-full text-left border-collapse">
                         <thead className="bg-[#F5F7FA] sticky top-0 z-10 border-b border-[#DCE3EA] text-[10px] font-black uppercase text-slate-600 tracking-wider">
                           <tr>
                             <th className="py-2.5 px-3">Número Empleado</th>
-                            <th className="py-2.5 px-3">Hora Registro</th>
+                            <th className="py-2.5 px-3">Hora</th>
                             <th className="py-2.5 px-3">Fecha</th>
+                            <th className="py-2.5 px-3">Turno</th>
                             <th className="py-2.5 px-3">Tipo Evento</th>
-                            <th className="py-2.5 px-3">Línea</th>
+                            <th className="py-2.5 px-3 text-right">Acción</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-[#DCE3EA] text-xs">
@@ -1159,7 +1229,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                             if (lineScans.length === 0) {
                               return (
                                 <tr>
-                                  <td colSpan={5} className="py-8 text-center text-slate-400 font-semibold italic">
+                                  <td colSpan={6} className="py-8 text-center text-slate-400 font-semibold italic">
                                     No hay escaneos registrados para esta línea.
                                   </td>
                                 </tr>
@@ -1173,6 +1243,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                               const dateStr = isValidDate ? dt.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Hoy';
                               const empNum = s.employee_number || s.badge_id || 'N/A';
                               const eventType = s.event_type || 'TURN_START';
+                              const shiftName = s.shift || 'Turno 1';
 
                               return (
                                 <tr key={s.id || `${empNum}-${dt.getTime()}`} className="hover:bg-[#F5F7FA] transition-colors">
@@ -1185,6 +1256,9 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                                   <td className="py-2.5 px-3 text-slate-600 font-semibold">
                                     {dateStr}
                                   </td>
+                                  <td className="py-2.5 px-3 text-slate-600 font-bold">
+                                    {shiftName}
+                                  </td>
                                   <td className="py-2.5 px-3">
                                     <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase ${
                                       eventType === 'MEAL_COVERAGE' ? 'bg-blue-100 text-blue-700 border border-blue-200' : 'bg-emerald-100 text-emerald-700 border border-emerald-200'
@@ -1192,8 +1266,14 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                                       {eventType}
                                     </span>
                                   </td>
-                                  <td className="py-2.5 px-3 font-bold text-slate-700">
-                                    {selectedLine.name}
+                                  <td className="py-2.5 px-3 text-right">
+                                    <button
+                                      onClick={() => handleDeleteScan(s.id)}
+                                      className="px-2 py-1 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-lg text-[10px] font-bold cursor-pointer transition-all inline-flex items-center gap-1"
+                                      title="Eliminar este registro de escaneo"
+                                    >
+                                      <span>🗑 Eliminar</span>
+                                    </button>
                                   </td>
                                 </tr>
                               );
