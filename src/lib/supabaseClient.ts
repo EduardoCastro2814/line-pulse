@@ -1,11 +1,12 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Detect Supabase Environment Variables
-const supabaseUrl = import.meta.env?.VITE_SUPABASE_URL || '';
-const supabaseAnonKey = import.meta.env?.VITE_SUPABASE_ANON_KEY || '';
+// Detect Supabase Environment Variables from Vite (.env)
+export const supabaseUrl = import.meta.env?.VITE_SUPABASE_URL || '';
+export const supabaseAnonKey = import.meta.env?.VITE_SUPABASE_ANON_KEY || '';
 
-// Determine if we should use the mock client
-export const isMock = !supabaseUrl || !supabaseAnonKey;
+// Determine if environment variables are configured
+export const isConfigured = Boolean(supabaseUrl && supabaseAnonKey && !supabaseUrl.includes('your-project'));
+export const isMock = !isConfigured;
 
 // LocalStorage Keys
 const MOCK_STORAGE_PREFIX = 'linepulse_v2_';
@@ -1001,9 +1002,52 @@ const mockSupabase = {
   }
 };
 
+export const realSupabase = createClient(
+  supabaseUrl || 'https://placeholder.supabase.co',
+  supabaseAnonKey || 'placeholder-anon-key'
+);
+
 export const supabase = isMock
   ? (mockSupabase as any)
-  : createClient(supabaseUrl, supabaseAnonKey);
+  : realSupabase;
+
+export interface SupabaseConnectionStatus {
+  isConfigured: boolean;
+  isConnected: boolean;
+  message: string;
+}
+
+export async function checkSupabaseConnection(): Promise<SupabaseConnectionStatus> {
+  if (!isConfigured) {
+    return {
+      isConfigured: false,
+      isConnected: false,
+      message: 'Variables VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY no configuradas en .env. Modo Demostración Local activo.'
+    };
+  }
+
+  try {
+    const { error } = await realSupabase.from('lineas').select('id').limit(1);
+    if (error) {
+      return {
+        isConfigured: true,
+        isConnected: false,
+        message: `Error al conectar con Supabase: ${error.message}`
+      };
+    }
+    return {
+      isConfigured: true,
+      isConnected: true,
+      message: 'Conexión exitosa con base de datos PostgreSQL Supabase.'
+    };
+  } catch (err: any) {
+    return {
+      isConfigured: true,
+      isConnected: false,
+      message: `No se pudo conectar con Supabase (${err?.message || 'Error de Red'}). Usando almacenamiento local.`
+    };
+  }
+}
 
 export const getLocalTable = (tableName: string) => {
   return loadTable(tableName);

@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Monitor, LayoutDashboard, Clock, AlertTriangle, User, FileText } from 'lucide-react';
+import { Monitor, LayoutDashboard, Clock, AlertTriangle, User, FileText, Database } from 'lucide-react';
 import { ExecutiveDashboard } from './components/ExecutiveDashboard';
 import { TvDashboard } from './components/TvDashboard';
 import { LineDetailsModal } from './components/LineDetailsModal';
 import { ReportsView } from './components/ReportsView';
 import { ScannerDrawer } from './components/ScannerDrawer';
-import { supabase } from './lib/supabaseClient';
+import { supabase, checkSupabaseConnection, type SupabaseConnectionStatus } from './lib/supabaseClient';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 
 export default function App() {
@@ -16,8 +16,24 @@ export default function App() {
   const [systemAlerts, setSystemAlerts] = useState<string[]>([]);
   const [isScannerOpen] = useState(false);
   
+  // Connection status state
+  const [connectionStatus, setConnectionStatus] = useState<SupabaseConnectionStatus>({
+    isConfigured: false,
+    isConnected: false,
+    message: 'Verificando conexión...'
+  });
+  
   // User Profile Role Control
   const [userRole, setUserRole] = useState<'admin' | 'supervisor' | 'viewer'>('admin');
+
+  // Check Supabase connection on mount
+  useEffect(() => {
+    async function verifyConnection() {
+      const status = await checkSupabaseConnection();
+      setConnectionStatus(status);
+    }
+    verifyConnection();
+  }, []);
 
   // Clock ticker
   useEffect(() => {
@@ -71,7 +87,7 @@ export default function App() {
             {/* 1. CORPORATE HEADER BAR (#005486) */}
             <header className="h-14 shrink-0 bg-[#005486] border-b border-[#00426a] flex items-center justify-between px-6 z-20 shadow-md">
               
-              {/* Brand logo (Outer circle + Inner centered circle) & App Title */}
+              {/* Brand logo & App Title */}
               <div className="flex items-center space-x-3.5">
                 {/* SVG Process Indicator Icon */}
                 <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shadow-inner">
@@ -94,10 +110,10 @@ export default function App() {
                 </div>
               )}
 
-              {/* Navigation & Controls (Dashboard | Monitor | Reportes) */}
+              {/* Navigation & Controls */}
               <div className="flex items-center space-x-3">
                 
-                {/* Navigation Switcher */}
+                {/* Navigation Switcher (Dashboard | Monitor | Reportes) */}
                 <div className="bg-black/15 p-1 border border-white/10 rounded-xl flex space-x-1">
                   <button
                     onClick={() => navigate('/dashboard')}
@@ -136,6 +152,36 @@ export default function App() {
                   </button>
                 </div>
 
+                {/* Supabase Connection Status Badge */}
+                <div 
+                  className={`flex items-center gap-1.5 border px-2.5 py-1.5 rounded-xl text-xs font-bold cursor-pointer transition-all ${
+                    connectionStatus.isConnected 
+                      ? 'bg-emerald-500/20 border-emerald-300/40 text-emerald-100'
+                      : connectionStatus.isConfigured
+                      ? 'bg-red-500/20 border-red-300/40 text-red-100'
+                      : 'bg-amber-500/20 border-amber-300/40 text-amber-100'
+                  }`}
+                  title={connectionStatus.message}
+                >
+                  <Database className="w-3.5 h-3.5" />
+                  <span className="hidden xl:inline">
+                    {connectionStatus.isConnected 
+                      ? 'PostgreSQL Supabase'
+                      : connectionStatus.isConfigured
+                      ? 'Error Supabase'
+                      : 'Modo Demo Local'}
+                  </span>
+                  <span 
+                    className={`w-2 h-2 rounded-full ${
+                      connectionStatus.isConnected 
+                        ? 'bg-emerald-400 animate-pulse'
+                        : connectionStatus.isConfigured
+                        ? 'bg-red-400'
+                        : 'bg-amber-400'
+                    }`}
+                  />
+                </div>
+
                 {/* Profile Role Selector */}
                 <div className="flex items-center space-x-1.5 bg-black/15 border border-white/10 px-2.5 py-1.5 rounded-xl text-white">
                   <User className="w-3.5 h-3.5 text-white/80" />
@@ -150,7 +196,7 @@ export default function App() {
                   </select>
                 </div>
 
-                {/* Digital Clock Ticker ONLY */}
+                {/* Digital Clock Ticker */}
                 <div className="hidden sm:flex items-center space-x-1.5 text-xs text-white font-mono font-bold bg-black/15 border border-white/10 px-3 py-1.5 rounded-xl">
                   <Clock className="w-3.5 h-3.5 text-emerald-300" />
                   <span>{currentClock || '--:--:--'}</span>
