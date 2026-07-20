@@ -347,9 +347,7 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
           {posiciones.map((pos, idx) => {
             const assignedEmp = pos.empleado || assignments.find(a => a.employee_id === pos.employee_id)?.empleado;
             const badgeId = assignedEmp?.badge_id;
-            const empName = assignedEmp?.name || pos.employee_name || 'Sin Asignar';
-            
-            const isPresent = badgeId && presentBadges.includes(badgeId);
+            const isPresent = Boolean(badgeId && presentBadges.includes(badgeId));
 
             // COLOR RULES:
             // 🟢 VERDE (#22C55E): Operador presente
@@ -409,11 +407,11 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
                   />
                 </div>
 
-                {/* Floating Tooltip ON HOVER ONLY (Shows Position, Station, Name, Badge) */}
-                <div className="opacity-0 group-hover:opacity-100 transition-all duration-200 pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2.5 bg-slate-900 text-white p-3 rounded-xl z-30 min-w-[160px] shadow-xl border border-slate-800 text-center scale-95 group-hover:scale-100">
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-1.5 mb-1.5">
+                {/* Floating Tooltip ON HOVER ONLY (Shows Position Code and Operational Status) */}
+                <div className="opacity-0 group-hover:opacity-100 transition-all duration-200 pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2.5 bg-slate-900 text-white p-2.5 rounded-xl z-30 min-w-[140px] shadow-xl border border-slate-800 text-center scale-95 group-hover:scale-100">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-1 mb-1">
                     <span className="text-xs font-black font-mono text-emerald-400 uppercase tracking-wider">
-                      {pos.code || `POS${idx + 1}`}
+                      ● {pos.code || `POS${idx + 1}`}
                     </span>
                     <span 
                       className="w-2 h-2 rounded-full"
@@ -422,21 +420,11 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
                   </div>
 
                   <span className="text-[11px] font-bold text-slate-300 block truncate">
-                    {pos.station_name}
+                    {pos.station_name || pos.code}
                   </span>
-
-                  <span className="text-xs font-extrabold text-white block truncate mt-0.5">
-                    {empName}
-                  </span>
-
-                  {badgeId && (
-                    <span className="text-[10px] font-mono text-slate-400 block mt-0.5">
-                      Gafete: #{badgeId}
-                    </span>
-                  )}
 
                   <span 
-                    className="text-[9px] font-bold uppercase tracking-wider block mt-1 pt-1 border-t border-slate-800/60"
+                    className="text-[10px] font-extrabold uppercase tracking-wider block mt-1 pt-1 border-t border-slate-800/60"
                     style={{ color: markerColor }}
                   >
                     {statusLabel}

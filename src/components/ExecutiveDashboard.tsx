@@ -21,8 +21,6 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
   const [scans, setScans] = useState<any[]>([]);
   const [downtimes, setDowntimes] = useState<any[]>([]);
   const [areas, setAreas] = useState<any[]>([]);
-  const [employees, setEmployees] = useState<any[]>([]);
-  const [assignments, setAssignments] = useState<any[]>([]);
   const [coverages, setCoverages] = useState<any[]>([]);
   const [posiciones, setPosiciones] = useState<any[]>([]);
 
@@ -35,7 +33,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
   const [rightPanelMode, setRightPanelMode] = useState<'analytics' | 'config'>('analytics');
 
   // Configuration Sub-Tab state
-  const [configSubTab, setConfigSubTab] = useState<'lines' | 'staff' | 'coverages' | 'layout'>('lines');
+  const [configSubTab, setConfigSubTab] = useState<'lines' | 'coverages' | 'layout'>('lines');
   
   // Modal State for + Nueva Línea
   const [isLineCreateModalOpen, setIsLineCreateModalOpen] = useState(false);
@@ -55,9 +53,6 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
     layout_url: '',
     status: 'FALTA PERSONAL'
   });
-
-  // Employee form state
-  const [empForm, setEmpForm] = useState({ badge_id: '', name: '' });
 
   // Coverage form state
   const [covForm, setCovForm] = useState({ id: '', start_time: '12:00:00', end_time: '12:30:00', required_operators: 3 });
@@ -129,8 +124,6 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
       const { data: scansData } = await supabase.from('escaneos').select('*');
       const { data: dtData } = await supabase.from('tiempos_muertos').select('*');
       const { data: areasData, error: areasError } = await supabase.from('areas').select('*');
-      const { data: empData } = await supabase.from('empleados').select('*');
-      const { data: assignData } = await supabase.from('empleados_linea').select('*, empleado:empleados(*)');
       const { data: covData } = await supabase.from('coberturas').select('*');
       
       let posData = null;
@@ -152,8 +145,6 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
       setScans(scansData || []);
       setDowntimes(dtData || []);
       setAreas(verifiedAreas);
-      setEmployees(empData || []);
-      setAssignments(assignData || []);
       setCoverages(covData || []);
       setPosiciones(posData || []);
     } catch (err) {
@@ -321,65 +312,88 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
   const handleCanvasMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!activeDraggingPosId || !layoutRef.current) return;
     const rect = layoutRef.current.getBoundingClientRect();
-    const xPercent = Math.max(2, Math.min(98, Math.round(((e.clientX - rect.left) / rect.width) * 100)));
-    const yPercent = Math.max(2, Math.min(98, Math.round(((e.clientY - rect.top) / rect.height) * 100)));
+    const xPercent = Math.max(3, Math.min(97, Math.round(((e.clientX - rect.left) / rect.width) * 100)));
+    const yPercent = Math.max(3, Math.min(97, Math.round(((e.clientY - rect.top) / rect.height) * 100)));
 
     setPosiciones(prev =>
-      prev.map(pos => (pos.id === activeDraggingPosId ? { ...pos, x_percent: xPercent, y_percent: yPercent } : pos))
+      prev.map(pos => 
+        (pos.id === activeDraggingPosId || pos.code === activeDraggingPosId)
+          ? { ...pos, x_percent: xPercent, y_percent: yPercent, placed: true }
+          : pos
+      )
+    );
+  };
+
+  const handlePlacePositionAtDefault = (code: string) => {
+    if (!selectedLineId) return;
+    setPosiciones(prev => {
+      const existing = prev.find(p => p.line_id === selectedLineId && p.code === code);
+      if (existing) {
+        return prev.map(p => (p.line_id === selectedLineId && p.code === code) ? { ...p, placed: true } : p);
+      } else {
+        return [
+          ...prev,
+          {
+            id: `temp-${code}`,
+            line_id: selectedLineId,
+            code,
+            station_name: code,
+            x_percent: 50,
+            y_percent: 50,
+            placed: true
+          }
+        ];
+      }
+    });
+  };
+
+  const handleRemovePositionFromCanvas = (code: string) => {
+    if (!selectedLineId) return;
+    setPosiciones(prev =>
+      prev.map(p => (p.line_id === selectedLineId && p.code === code) ? { ...p, placed: false } : p)
     );
   };
 
   const handleSavePositions = async () => {
     if (!selectedLineId) return;
-    const linePosList = posiciones.filter(p => p.line_id === selectedLineId);
-    await supabase.from('posiciones').delete().eq('line_id', selectedLineId);
-    for (const pos of linePosList) {
-      await supabase.from('posiciones').insert({
+    const { target: targetCount } = getActiveStaffingTarget(selectedLineId);
+    
+    // Filter positions that belong to this line and are placed on canvas
+    const currentLinePositions = posiciones.filter(
+      p => p.line_id === selectedLineId && p.placed !== false
+    );
+    
+    const placedCount = currentLinePositions.length;
+
+    if (placedCount < targetCount) {
+      const missing = targetCount - placedCount;
+      showFeedback('error', `❌ Faltan ${missing} posiciones por ubicar en el layout.`);
+      return; // BLOQUEAR GUARDADO
+    }
+
+    try {
+      await supabase.from('posiciones').delete().eq('line_id', selectedLineId);
+      await supabase.from('line_positions').delete().eq('line_id', selectedLineId);
+
+      const payload = currentLinePositions.map(pos => ({
         line_id: selectedLineId,
         code: pos.code,
-        station_name: pos.station_name,
-        employee_id: pos.employee_id || null,
+        station_name: pos.code,
         x_percent: pos.x_percent,
         y_percent: pos.y_percent
-      });
-    }
-    showFeedback('success', 'Posiciones guardadas correctamente.');
-    loadData();
-  };
+      }));
 
-  // Assigned Employee Add
-  const handleAddEmployee = async () => {
-    if (!selectedLineId || !empForm.badge_id.trim() || !empForm.name.trim()) {
-      showFeedback('error', 'Número de empleado y Nombre son requeridos.');
-      return;
-    }
+      const { error: err1 } = await supabase.from('posiciones').insert(payload);
+      const { error: err2 } = await supabase.from('line_positions').insert(payload);
 
-    let emp = employees.find(e => e.badge_id === empForm.badge_id.trim());
-    let employeeId = emp?.id;
-
-    if (!emp) {
-      const { data: newEmp, error: errEmp } = await supabase.from('empleados').insert({
-        badge_id: empForm.badge_id.trim(),
-        name: empForm.name.trim()
-      });
-      if (errEmp) {
-        showFeedback('error', `Error al registrar: ${errEmp.message}`);
-        return;
+      if (err1 || err2) {
+        showFeedback('error', `❌ Error al guardar mapa visual: ${(err1 || err2)?.message}`);
+      } else {
+        showFeedback('success', '✅ Mapa visual de layout guardado con éxito.');
+        loadData();
       }
-      employeeId = newEmp.id;
-    }
-
-    const { error: errLink } = await supabase.from('empleados_linea').insert({
-      employee_id: employeeId,
-      line_id: selectedLineId
-    });
-
-    if (errLink) {
-      showFeedback('error', 'Empleado ya asignado a esta línea.');
-    } else {
-      showFeedback('success', 'Empleado asignado correctamente.');
-      setEmpForm({ badge_id: '', name: '' });
-      loadData();
+    } catch (err: any) {
+      showFeedback('error', `❌ Error al guardar posiciones: ${err?.message}`);
     }
   };
 
@@ -473,9 +487,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
   ];
 
   const selectedLine = lines.find(l => l.id === selectedLineId);
-  const activeAssignments = assignments.filter(a => a.line_id === selectedLineId);
   const activeCoverages = coverages.filter(c => c.line_id === selectedLineId);
-  const activePosiciones = posiciones.filter(p => p.line_id === selectedLineId);
 
   return (
     <div className="bg-[#F5F7FA] text-slate-800 flex-grow h-full flex flex-col overflow-hidden p-4 space-y-4 font-sans select-none">
@@ -876,14 +888,6 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                     Layout & Posiciones
                   </button>
                   <button
-                    onClick={() => setConfigSubTab('staff')}
-                    className={`text-xs font-bold uppercase tracking-wider h-full border-b-2 flex items-center cursor-pointer ${
-                      configSubTab === 'staff' ? 'border-[#005486] text-[#005486]' : 'border-transparent text-slate-500'
-                    }`}
-                  >
-                    Plantilla Asignada
-                  </button>
-                  <button
                     onClick={() => setConfigSubTab('coverages')}
                     className={`text-xs font-bold uppercase tracking-wider h-full border-b-2 flex items-center cursor-pointer ${
                       configSubTab === 'coverages' ? 'border-[#005486] text-[#005486]' : 'border-transparent text-slate-500'
@@ -922,12 +926,13 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
 
                     {/* Shifts targets */}
                     <div className="bg-[#F5F7FA] border border-[#DCE3EA] p-3 rounded-xl space-y-3">
-                      <span className="font-extrabold uppercase text-[#005486] text-[11px] block">Metas por Turno</span>
+                      <span className="font-extrabold uppercase text-[#005486] text-[11px] block">Metas de Operadores por Turno</span>
                       <div className="grid grid-cols-3 gap-2">
                         <div className="bg-white p-2.5 rounded-lg border border-[#DCE3EA]">
                           <span className="font-bold block mb-1">Turno 1</span>
                           <input
                             type="number"
+                            min="1"
                             value={lineForm.shift1_target}
                             onChange={(e) => setLineForm({ ...lineForm, shift1_target: Number(e.target.value) })}
                             className="w-full bg-[#F5F7FA] border border-[#DCE3EA] rounded p-1 font-mono font-bold"
@@ -937,6 +942,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                           <span className="font-bold block mb-1">Turno 2</span>
                           <input
                             type="number"
+                            min="1"
                             value={lineForm.shift2_target}
                             onChange={(e) => setLineForm({ ...lineForm, shift2_target: Number(e.target.value) })}
                             className="w-full bg-[#F5F7FA] border border-[#DCE3EA] rounded p-1 font-mono font-bold"
@@ -946,6 +952,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                           <span className="font-bold block mb-1">Turno 3</span>
                           <input
                             type="number"
+                            min="1"
                             value={lineForm.shift3_target}
                             onChange={(e) => setLineForm({ ...lineForm, shift3_target: Number(e.target.value) })}
                             className="w-full bg-[#F5F7FA] border border-[#DCE3EA] rounded p-1 font-mono font-bold"
@@ -974,97 +981,107 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                   </div>
                 )}
 
-                {/* SUB-TAB 2: LAYOUT & POSICIONES */}
-                {configSubTab === 'layout' && (
-                  <div className="space-y-3 text-xs">
-                    <div className="flex items-center justify-between">
-                      <label className="flex items-center gap-2 bg-[#F5F7FA] hover:bg-slate-200 text-[#005486] font-bold px-3 py-1.5 rounded-xl border border-[#DCE3EA] cursor-pointer">
-                        <Upload className="w-3.5 h-3.5" />
-                        <span>Cargar Imagen Layout</span>
-                        <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
-                      </label>
+                {/* SUB-TAB 2: LAYOUT & POSICIONES OPERATIVAS */}
+                {configSubTab === 'layout' && (() => {
+                  const targetCount = Math.max(1, getActiveStaffingTarget(selectedLineId || '').target || selectedLine.shift1_target || 6);
+                  const targetPosCodes = Array.from({ length: targetCount }, (_, i) => `POS${String(i + 1).padStart(2, '0')}`);
+                  const currentLinePlacedPos = posiciones.filter(p => p.line_id === selectedLineId && p.placed !== false);
+                  const placedPosCodes = new Set(currentLinePlacedPos.map(p => p.code));
+                  const unplacedCodes = targetPosCodes.filter(code => !placedPosCodes.has(code));
+                  const placedCount = currentLinePlacedPos.length;
 
-                      <button
-                        onClick={handleSavePositions}
-                        className="flex items-center gap-1 bg-[#005486] text-white font-bold px-4 py-1.5 rounded-xl shadow-sm cursor-pointer"
-                      >
-                        <Save className="w-3.5 h-3.5" />
-                        <span>Guardar Mapa Visual</span>
-                      </button>
-                    </div>
+                  return (
+                    <div className="space-y-3 text-xs">
+                      {/* Header Controls */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 bg-[#F5F7FA] p-3 rounded-xl border border-[#DCE3EA]">
+                        <div className="flex items-center gap-2">
+                          <label className="flex items-center gap-1.5 bg-white hover:bg-slate-100 text-[#005486] font-bold px-3 py-1.5 rounded-xl border border-[#DCE3EA] cursor-pointer shadow-sm transition-all">
+                            <Upload className="w-3.5 h-3.5" />
+                            <span>Cargar Imagen Layout</span>
+                            <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
+                          </label>
+                          <span className="text-[11px] text-slate-600 font-semibold">
+                            Plantilla: <strong className="text-slate-800 font-mono">{targetCount} pos</strong> | Ubicadas: <strong className={placedCount === targetCount ? "text-emerald-600 font-mono" : "text-amber-600 font-mono"}>{placedCount}/{targetCount}</strong>
+                          </span>
+                        </div>
 
-                    {/* Drag Canvas */}
-                    <div 
-                      ref={layoutRef}
-                      onMouseMove={handleCanvasMouseMove}
-                      onMouseUp={() => setActiveDraggingPosId(null)}
-                      className="relative w-full h-[240px] bg-[#F5F7FA] border border-[#DCE3EA] rounded-xl overflow-hidden select-none"
-                    >
-                      <img 
-                        src={lineForm.layout_url || DEFAULT_SMT_LAYOUT} 
-                        alt="Blueprint"
-                        className="w-full h-full object-contain pointer-events-none opacity-90"
-                      />
-                      {activePosiciones.map((pos) => (
-                        <div
-                          key={pos.id}
-                          style={{ left: `${pos.x_percent}%`, top: `${pos.y_percent}%`, transform: 'translate(-50%, -50%)' }}
-                          onMouseDown={() => setActiveDraggingPosId(pos.id)}
-                          className="absolute z-20 cursor-move"
+                        <button
+                          onClick={handleSavePositions}
+                          className="flex items-center gap-1.5 bg-[#005486] hover:bg-[#003f66] text-white font-extrabold px-4 py-1.5 rounded-xl shadow-sm transition-all cursor-pointer"
                         >
-                          <div className="bg-white border-2 border-[#005486] px-1.5 py-0.5 rounded shadow text-[9px] font-bold font-mono">
-                            {pos.code}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* SUB-TAB 3: PLANTILLA */}
-                {configSubTab === 'staff' && (
-                  <div className="space-y-4 text-xs">
-                    <div className="bg-[#F5F7FA] p-3 rounded-xl border border-[#DCE3EA] space-y-2">
-                      <span className="font-bold text-[#005486] uppercase block text-[11px]">Asignar Empleado</span>
-                      <div className="grid grid-cols-2 gap-2">
-                        <input
-                          type="text"
-                          placeholder="Gafete #100234"
-                          value={empForm.badge_id}
-                          onChange={(e) => setEmpForm({ ...empForm, badge_id: e.target.value })}
-                          className="bg-white border border-[#DCE3EA] rounded p-1.5 font-mono"
-                        />
-                        <input
-                          type="text"
-                          placeholder="Nombre Completo"
-                          value={empForm.name}
-                          onChange={(e) => setEmpForm({ ...empForm, name: e.target.value })}
-                          className="bg-white border border-[#DCE3EA] rounded p-1.5"
-                        />
+                          <Save className="w-3.5 h-3.5" />
+                          <span>Guardar Mapa Visual</span>
+                        </button>
                       </div>
-                      <button
-                        onClick={handleAddEmployee}
-                        className="w-full bg-[#005486] text-white font-bold py-1.5 rounded-lg shadow-sm cursor-pointer"
-                      >
-                        Asignar a Línea
-                      </button>
-                    </div>
 
-                    <div className="space-y-1">
-                      <span className="font-bold text-slate-500 uppercase text-[10px] block">Plantilla Registrada ({activeAssignments.length})</span>
-                      {activeAssignments.map(assoc => (
-                        <div key={assoc.id} className="p-2 bg-[#F5F7FA] border border-[#DCE3EA] rounded-lg flex justify-between items-center">
-                          <div>
-                            <span className="font-bold block">{assoc.empleado?.name}</span>
-                            <span className="text-[10px] text-slate-500 font-mono">#{assoc.empleado?.badge_id}</span>
+                      {/* Unplaced Positions Workbench Drawer */}
+                      {unplacedCodes.length > 0 && (
+                        <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="font-extrabold text-amber-900 text-[11px] uppercase tracking-wider flex items-center gap-1">
+                              <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                              Posiciones Pendientes por Ubicar ({unplacedCodes.length}):
+                            </span>
+                            <span className="text-[10px] text-amber-700">Haga clic en la posición para colocarla sobre el plano</span>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {unplacedCodes.map(code => (
+                              <button
+                                key={code}
+                                onClick={() => handlePlacePositionAtDefault(code)}
+                                className="bg-white hover:bg-amber-100 border-2 border-amber-500 text-amber-900 font-black font-mono text-xs px-2.5 py-1 rounded-lg shadow-sm flex items-center gap-1.5 cursor-pointer transition-all active:scale-95"
+                                title="Haga clic para colocar en el plano"
+                              >
+                                <span>●</span>
+                                <span>{code}</span>
+                              </button>
+                            ))}
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                      )}
 
-                {/* SUB-TAB 4: COBERTURAS COMEDOR */}
+                      {/* Drag Canvas */}
+                      <div 
+                        ref={layoutRef}
+                        onMouseMove={handleCanvasMouseMove}
+                        onMouseUp={() => setActiveDraggingPosId(null)}
+                        className="relative w-full h-[300px] bg-slate-900 border-2 border-[#DCE3EA] rounded-xl overflow-hidden select-none shadow-inner"
+                      >
+                        <img 
+                          src={lineForm.layout_url || DEFAULT_SMT_LAYOUT} 
+                          alt="Blueprint Layout"
+                          className="w-full h-full object-contain pointer-events-none opacity-90"
+                        />
+                        {currentLinePlacedPos.map((pos) => (
+                          <div
+                            key={pos.id || pos.code}
+                            style={{ left: `${pos.x_percent}%`, top: `${pos.y_percent}%`, transform: 'translate(-50%, -50%)' }}
+                            onMouseDown={() => setActiveDraggingPosId(pos.id || pos.code)}
+                            className="absolute z-20 cursor-move group"
+                          >
+                            {/* Minimal Icon Node: ● POS01 */}
+                            <div className="flex items-center gap-1 bg-white/95 backdrop-blur-sm border-2 border-[#005486] text-[#005486] px-2 py-0.5 rounded-full shadow-lg text-[10px] font-black font-mono tracking-wider group-hover:scale-110 transition-transform">
+                              <span className="w-2 h-2 rounded-full bg-[#005486]" />
+                              <span>{pos.code}</span>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRemovePositionFromCanvas(pos.code);
+                                }}
+                                className="ml-1 text-slate-400 hover:text-red-500 font-extrabold text-[10px] transition-colors"
+                                title="Quitar del plano"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* SUB-TAB 3: COBERTURAS COMEDOR */}
                 {configSubTab === 'coverages' && (
                   <div className="space-y-4 text-xs">
                     <div className="bg-[#F5F7FA] p-3 rounded-xl border border-[#DCE3EA] space-y-2">
