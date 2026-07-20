@@ -527,40 +527,63 @@ export const recalculateLineState = (lineId: string) => {
 };
 
 // Helper to determine active staffing target for a line at the current time
-export const getActiveStaffingTarget = (lineId: string): { target: number; isCoverageActive: boolean; coverageDetails?: any; activeShiftName: string } => {
-  const line = loadTable('lineas').find(l => l.id === lineId);
-  if (!line) return { target: 0, isCoverageActive: false, activeShiftName: 'Primero' };
+// Shift Determination Engine with 15-Minute Early Scan Tolerance Window
+export function getShiftForTime(line: any, dateObj: Date = new Date(), toleranceMinutes: number = 15): {
+  shiftName: string;
+  shiftKey: 'shift1' | 'shift2' | 'shift3';
+  target: number;
+} {
+  if (!line) return { shiftName: 'Turno 1', shiftKey: 'shift1', target: 6 };
 
-  // Calculate current active shift
-  const now = new Date();
-  const nowStr = now.toTimeString().split(' ')[0]; // "12:15:32"
-  
-  let activeShiftName = 'Primero';
-  let normalTarget = line.shift1_target;
+  const s1Str = line.shift1_start || '06:00:00';
+  const s2Str = line.shift2_start || '14:00:00';
+  const s3Str = line.shift3_start || '22:00:00';
 
-  const s1 = line.shift1_start;
-  const s2 = line.shift2_start;
-  const s3 = line.shift3_start;
+  const timeToMinutes = (tStr: string) => {
+    const parts = (tStr || '00:00').split(':').map(Number);
+    return (parts[0] || 0) * 60 + (parts[1] || 0);
+  };
 
-  // Handles shift wraps around midnight
-  if (s2 > s1) {
-    if (nowStr >= s1 && nowStr < s2) {
-      activeShiftName = 'Primero';
-      normalTarget = line.shift1_target;
-    } else if (nowStr >= s2 && nowStr < s3) {
-      activeShiftName = 'Segundo';
-      normalTarget = line.shift2_target;
-    } else {
-      activeShiftName = 'Tercero';
-      normalTarget = line.shift3_target;
-    }
+  const s1Min = timeToMinutes(s1Str);
+  const s2Min = timeToMinutes(s2Str);
+  const s3Min = timeToMinutes(s3Str);
+
+  const curMin = dateObj.getHours() * 60 + dateObj.getMinutes();
+
+  let shiftKey: 'shift1' | 'shift2' | 'shift3' = 'shift1';
+  let shiftName = 'Turno 1';
+  let target = Number(line.shift1_target || 6);
+
+  // Checks with early tolerance window (e.g. 15 mins prior to shift start)
+  if (curMin >= (s2Min - toleranceMinutes) && curMin < (s3Min - toleranceMinutes)) {
+    shiftKey = 'shift2';
+    shiftName = 'Turno 2';
+    target = Number(line.shift2_target || 6);
+  } else if (curMin >= (s3Min - toleranceMinutes) || curMin < (s1Min - toleranceMinutes)) {
+    shiftKey = 'shift3';
+    shiftName = 'Turno 3';
+    target = Number(line.shift3_target || 4);
   } else {
-    // Edge-cases fallback
-    activeShiftName = 'Primero';
-    normalTarget = line.shift1_target;
+    shiftKey = 'shift1';
+    shiftName = 'Turno 1';
+    target = Number(line.shift1_target || 6);
   }
 
+  return { shiftName, shiftKey, target };
+}
+
+// Helper to determine active staffing target for a line at the current time
+export const getActiveStaffingTarget = (lineId: string): { target: number; isCoverageActive: boolean; coverageDetails?: any; activeShiftName: string } => {
+  const line = loadTable('lineas').find(l => l.id === lineId);
+  if (!line) return { target: 0, isCoverageActive: false, activeShiftName: 'Turno 1' };
+
+  const now = new Date();
+  const shiftInfo = getShiftForTime(line, now, 15);
+  const activeShiftName = shiftInfo.shiftName;
+  let normalTarget = shiftInfo.target;
+
   // Check if lunch coverage is active
+  const nowStr = now.toTimeString().split(' ')[0];
   const coverages = loadTable('coberturas').filter(c => c.line_id === lineId);
   for (const cov of coverages) {
     if (nowStr >= cov.start_time && nowStr <= cov.end_time) {
@@ -581,7 +604,7 @@ export const getActiveStaffingTarget = (lineId: string): { target: number; isCov
   return { target: normalTarget, isCoverageActive: false, activeShiftName };
 };
 
-// Unified KPI & Line Status Calculator for Single Source of Truth
+// Unified KPI & Line Status Calculator for Single Source of Truth with Automatic Shift Reset
 export const calculateLineMetrics = (
   lineId: string,
   posicionesList: any[],
@@ -589,15 +612,37 @@ export const calculateLineMetrics = (
   _coveragesList: any[] = []
 ) => {
   const linePos = posicionesList.filter((p: any) => p.line_id === lineId);
-  const lineScans = scansList.filter((s: any) => s.line_id === lineId && s.was_successful !== false);
-  
+  const lineas = loadTable('lineas');
+  const line = lineas.find((l: any) => l.id === lineId);
+
+  const now = new Date();
+  const todayDateStr = now.toISOString().split('T')[0];
+  const shiftInfo = getShiftForTime(line, now, 15);
+  const activeShiftName = shiftInfo.shiftName;
+
+  // Filter lineScans made TODAY and associated with the active shift (automatic shift reset logic)
+  const lineScans = scansList.filter((s: any) => {
+    if (s.line_id !== lineId || s.was_successful === false) return false;
+
+    const scanDate = new Date(s.event_time || s.scan_time || s.created_at || Date.now());
+    const isToday = scanDate.toISOString().split('T')[0] === todayDateStr;
+    if (!isToday) return false;
+
+    if (s.shift) {
+      return s.shift === activeShiftName;
+    }
+
+    const scanShiftInfo = getShiftForTime(line, scanDate, 15);
+    return scanShiftInfo.shiftName === activeShiftName;
+  });
+
   const distinctScanned = new Set(
     lineScans
       .map((s: any) => (s.employee_number || s.badge_id || '').trim())
       .filter(Boolean)
   ).size;
 
-  const { target: shiftTarget, isCoverageActive, activeShiftName } = getActiveStaffingTarget(lineId);
+  const { target: shiftTarget, isCoverageActive } = getActiveStaffingTarget(lineId);
   const target = isCoverageActive
     ? shiftTarget
     : (linePos.length > 0 ? linePos.length : (shiftTarget > 0 ? shiftTarget : 6));

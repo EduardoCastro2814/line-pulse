@@ -222,6 +222,54 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
     setRightPanelMode('config');
   };
 
+  // Edit Line Action
+  const handleEditLine = (line: any, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setLineForm({
+      id: line.id,
+      name: line.name,
+      area_id: line.area_id,
+      process: line.process || '',
+      shift1_start: line.shift1_start || '06:00:00',
+      shift1_target: line.shift1_target || 6,
+      shift2_start: line.shift2_start || '14:00:00',
+      shift2_target: line.shift2_target || 6,
+      shift3_start: line.shift3_start || '22:00:00',
+      shift3_target: line.shift3_target || 4,
+      layout_url: line.layout_url || '',
+      status: line.status || 'FALTA PERSONAL'
+    });
+    setIsLineCreateModalOpen(true);
+  };
+
+  // Delete Line Action
+  const handleDeleteLine = async (lineId: string, lineName: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!window.confirm(`¿Desea eliminar la línea "${lineName}"? Esta acción borrará la línea, sus posiciones y todos sus registros asociados.`)) {
+      return;
+    }
+
+    try {
+      await supabase.from('escaneos').delete().eq('line_id', lineId);
+      await supabase.from('posiciones').delete().eq('line_id', lineId);
+      await supabase.from('line_positions').delete().eq('line_id', lineId);
+      const { error } = await supabase.from('lineas').delete().eq('id', lineId);
+
+      if (error) {
+        showFeedback('error', `Error al eliminar la línea: ${error.message}`);
+      } else {
+        showFeedback('success', `✅ Línea "${lineName}" eliminada correctamente.`);
+        if (selectedLineId === lineId) {
+          setSelectedLineId(null);
+          setRightPanelMode('analytics');
+        }
+        loadData();
+      }
+    } catch (err: any) {
+      showFeedback('error', `Error: ${err.message}`);
+    }
+  };
+
   // Save or Create Line Parameters
   const handleSaveLine = async () => {
     const errors: { name?: string; area_id?: string } = {};
@@ -717,17 +765,18 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
             <table className="w-full text-left border-collapse text-xs">
               <thead className="bg-[#F5F7FA] border-b border-[#DCE3EA] sticky top-0 z-10">
                 <tr className="text-[10px] font-extrabold text-slate-600 uppercase tracking-wider">
-                  <th className="py-2.5 px-3 w-10 text-center">St</th>
+                  <th className="py-2.5 px-3 w-8 text-center">St</th>
                   <th className="py-2.5 px-3">Nombre</th>
                   <th className="py-2.5 px-3">Cobertura</th>
                   <th className="py-2.5 px-3">Personal</th>
                   <th className="py-2.5 px-3">TM</th>
+                  <th className="py-2.5 px-3 text-right">⚙</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#DCE3EA]">
                 {filteredLines.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="py-12 px-4 text-center">
+                    <td colSpan={6} className="py-12 px-4 text-center">
                       <div className="flex flex-col items-center justify-center gap-3">
                         <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center text-[#005486]">
                           <Layers className="w-6 h-6" />
@@ -792,6 +841,24 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                       </td>
                       <td className="py-2.5 px-3 font-mono text-slate-600">
                         {activeDtMin > 0 ? <span className="text-amber-600 font-bold">{activeDtMin}m</span> : '0m'}
+                      </td>
+                      <td className="py-2.5 px-3 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={(e) => handleEditLine(line, e)}
+                            className="p-1 hover:bg-slate-200 text-slate-700 rounded-md transition-all cursor-pointer"
+                            title="Editar parámetros de la línea"
+                          >
+                            <Settings className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={(e) => handleDeleteLine(line.id, line.name, e)}
+                            className="p-1 hover:bg-red-100 text-red-600 rounded-md transition-all cursor-pointer"
+                            title="Eliminar línea de producción"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
