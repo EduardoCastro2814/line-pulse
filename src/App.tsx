@@ -1,20 +1,20 @@
 import { useState, useEffect } from 'react';
-import { Monitor, LayoutDashboard, Clock, AlertTriangle, Settings, User } from 'lucide-react';
+import { Monitor, LayoutDashboard, Clock, AlertTriangle, User, FileText } from 'lucide-react';
 import { ExecutiveDashboard } from './components/ExecutiveDashboard';
 import { TvDashboard } from './components/TvDashboard';
 import { LineDetailsModal } from './components/LineDetailsModal';
+import { ReportsView } from './components/ReportsView';
 import { ScannerDrawer } from './components/ScannerDrawer';
-import { ConfigurationModal } from './components/ConfigurationModal';
 import { supabase } from './lib/supabaseClient';
-import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 
 export default function App() {
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [currentClock, setCurrentClock] = useState('');
   const [systemAlerts, setSystemAlerts] = useState<string[]>([]);
   const [isScannerOpen] = useState(false);
-  const [isConfigOpen, setIsConfigOpen] = useState(false);
   
   // User Profile Role Control
   const [userRole, setUserRole] = useState<'admin' | 'supervisor' | 'viewer'>('admin');
@@ -52,31 +52,37 @@ export default function App() {
     };
   }, []);
 
+  const isCurrentRoute = (path: string) => location.pathname === path;
+
   return (
     <Routes>
       {/* Route for TV Monitor View */}
       <Route path="/monitor" element={<TvDashboard />} />
 
-      {/* Route for Detailed Line View */}
+      {/* Route for Detailed Operational View */}
       <Route path="/linea/:lineId" element={<LineDetailsModal />} />
 
-      {/* Route for Corporate Executive Dashboard with Main Header */}
+      {/* Corporate Header Wrapper for Dashboard & Reportes */}
       <Route
-        path="/dashboard"
+        path="/*"
         element={
           <div className="flex flex-col h-screen overflow-hidden bg-[#F5F7FA] text-slate-800 font-sans select-none">
             
             {/* 1. CORPORATE HEADER BAR (#005486) */}
             <header className="h-14 shrink-0 bg-[#005486] border-b border-[#00426a] flex items-center justify-between px-6 z-20 shadow-md">
               
-              {/* Brand logo & App Title */}
+              {/* Brand logo (Outer circle + Inner centered circle) & App Title */}
               <div className="flex items-center space-x-3.5">
-                <div className="w-8 h-8 bg-white/15 border border-white/20 rounded-lg flex items-center justify-center shadow-inner">
-                  <span className="text-white font-black text-lg font-mono">LP</span>
+                {/* SVG Process Indicator Icon */}
+                <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shadow-inner">
+                  <svg width="22" height="22" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="24" cy="24" r="20" stroke="#005486" strokeWidth="6" fill="#FFFFFF"/>
+                    <circle cx="24" cy="24" r="10" fill="#005486"/>
+                  </svg>
                 </div>
                 <div>
                   <span className="text-lg font-black tracking-widest text-white uppercase font-sans">LINEPULSE</span>
-                  <span className="block text-[9px] text-white/70 font-bold uppercase tracking-wider font-sans">Operations & MES Platform</span>
+                  <span className="block text-[9px] text-white/70 font-bold uppercase tracking-wider font-sans">Operations MES Platform</span>
                 </div>
               </div>
 
@@ -88,14 +94,18 @@ export default function App() {
                 </div>
               )}
 
-              {/* Navigation & Controls */}
+              {/* Navigation & Controls (Dashboard | Monitor | Reportes) */}
               <div className="flex items-center space-x-3">
                 
-                {/* Dashboard & Monitor Navigation Switcher */}
+                {/* Navigation Switcher */}
                 <div className="bg-black/15 p-1 border border-white/10 rounded-xl flex space-x-1">
                   <button
                     onClick={() => navigate('/dashboard')}
-                    className="text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all bg-white text-[#005486] shadow-sm cursor-pointer"
+                    className={`text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer ${
+                      isCurrentRoute('/dashboard')
+                        ? 'bg-white text-[#005486] shadow-sm'
+                        : 'text-white/80 hover:text-white hover:bg-white/10'
+                    }`}
                   >
                     <LayoutDashboard className="w-3.5 h-3.5" />
                     <span>Dashboard</span>
@@ -103,10 +113,26 @@ export default function App() {
                   
                   <button
                     onClick={() => navigate('/monitor')}
-                    className="text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all text-white/80 hover:text-white hover:bg-white/10 cursor-pointer"
+                    className={`text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer ${
+                      isCurrentRoute('/monitor')
+                        ? 'bg-white text-[#005486] shadow-sm'
+                        : 'text-white/80 hover:text-white hover:bg-white/10'
+                    }`}
                   >
                     <Monitor className="w-3.5 h-3.5" />
                     <span>Monitor</span>
+                  </button>
+
+                  <button
+                    onClick={() => navigate('/reportes')}
+                    className={`text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer ${
+                      isCurrentRoute('/reportes')
+                        ? 'bg-white text-[#005486] shadow-sm'
+                        : 'text-white/80 hover:text-white hover:bg-white/10'
+                    }`}
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>Reportes</span>
                   </button>
                 </div>
 
@@ -124,18 +150,6 @@ export default function App() {
                   </select>
                 </div>
 
-                {/* Configuration button (Admin & Supervisor ONLY) */}
-                {(userRole === 'admin' || userRole === 'supervisor') && (
-                  <button
-                    onClick={() => setIsConfigOpen(true)}
-                    className="flex items-center gap-1 bg-white/10 hover:bg-white/20 text-white border border-white/20 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer"
-                    title="Panel de Configuración de Planta"
-                  >
-                    <Settings className="w-3.5 h-3.5 text-white" />
-                    <span>Configuración</span>
-                  </button>
-                )}
-
                 {/* Digital Clock Ticker ONLY */}
                 <div className="hidden sm:flex items-center space-x-1.5 text-xs text-white font-mono font-bold bg-black/15 border border-white/10 px-3 py-1.5 rounded-xl">
                   <Clock className="w-3.5 h-3.5 text-emerald-300" />
@@ -145,9 +159,13 @@ export default function App() {
               </div>
             </header>
 
-            {/* 2. CORPORATE DASHBOARD MAIN VIEWPORT */}
+            {/* 2. MAIN VIEWPORT ROUTES */}
             <main className="flex-grow p-4 overflow-hidden flex flex-col min-h-0">
-              <ExecutiveDashboard />
+              <Routes>
+                <Route path="/dashboard" element={<ExecutiveDashboard userRole={userRole} />} />
+                <Route path="/reportes" element={<ReportsView />} />
+                <Route path="*" element={<Navigate to="/dashboard" replace />} />
+              </Routes>
             </main>
 
             {/* 3. SCANNER DRAWER */}
@@ -156,19 +174,9 @@ export default function App() {
               onClose={() => {}} 
             />
 
-            {/* 4. CONFIGURATION SETTINGS MODAL */}
-            <ConfigurationModal
-              isOpen={isConfigOpen}
-              onClose={() => setIsConfigOpen(false)}
-              userRole={userRole}
-            />
-
           </div>
         }
       />
-
-      {/* Fallback to dashboard */}
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );
 }
