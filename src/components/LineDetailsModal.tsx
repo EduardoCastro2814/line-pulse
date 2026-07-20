@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { supabase, getActiveStaffingTarget, DEFAULT_SMT_LAYOUT } from '../lib/supabaseClient';
-import { X, Clock, QrCode, Maximize, Minimize, Utensils, AlertTriangle, CheckCircle2, ArrowLeft } from 'lucide-react';
+import { Clock, QrCode, Maximize, Minimize, Utensils, CheckCircle2, ArrowLeft } from 'lucide-react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 
 interface LineDetailsModalProps {
@@ -50,7 +50,7 @@ const LargeCircularGauge: React.FC<{ percentage: number; color: string; present:
         <span className="text-2xl font-black font-mono leading-none" style={{ color }}>
           {percentage}%
         </span>
-        <span className="text-xs font-mono font-bold text-slate-500 mt-1">
+        <span className="text-xs font-mono font-bold text-slate-[#64748B] mt-1">
           {present}/{target}
         </span>
       </div>
@@ -74,13 +74,11 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
 
   const [line, setLine] = useState<any>(null);
   const [escaneos, setEscaneos] = useState<any[]>([]);
-  const [assignments, setAssignments] = useState<any[]>([]);
   const [posiciones, setPosiciones] = useState<any[]>([]);
   const [tiemposMuertos, setTiemposMuertos] = useState<any[]>([]);
 
-  // Inline quick scanner drawer states
-  const [isScannerOpen, setIsScannerOpen] = useState(false);
-  const [scanBadgeInput, setScanBadgeInput] = useState('');
+  // Inline scanner states & USB Direct Capture
+  const [manualScanInput, setManualScanInput] = useState('');
   const [scanFeedback, setScanFeedback] = useState<{ status: 'success' | 'error' | null; message: string }>({
     status: null,
     message: ''
@@ -93,7 +91,7 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
   const [currentTimeStr, setCurrentTimeStr] = useState('00:00:00');
   const [currentDateStr, setCurrentDateStr] = useState('');
 
-  const scanInputRef = useRef<HTMLInputElement>(null);
+  const usbInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -138,17 +136,13 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
       if (lineData && lineData.length > 0) setLine(lineData[0]);
 
       // Load ALL scans
-      const { data: escData } = await supabase.from('escaneos').select('*').eq('line_id', lineId);
+      const { data: escData } = await supabase.from('escaneos').select('*').eq('line_id', lineId).order('created_at', { ascending: true });
       setEscaneos(escData || []);
 
-      // Load assignments
-      const { data: assignData } = await supabase.from('empleados_linea').select('*, empleado:empleados(*)').eq('line_id', lineId);
-      setAssignments(assignData || []);
-
       // Load positions mapping (try 'posiciones' then fallback to 'line_positions')
-      let posRes = await supabase.from('posiciones').select('*, empleado:empleados(*)').eq('line_id', lineId);
+      let posRes = await supabase.from('posiciones').select('*, empleado:empleados(*)').eq('line_id', lineId).order('code', { ascending: true });
       if (!posRes.data || posRes.data.length === 0) {
-        posRes = await supabase.from('line_positions').select('*, empleado:empleados(*)').eq('line_id', lineId);
+        posRes = await supabase.from('line_positions').select('*, empleado:empleados(*)').eq('line_id', lineId).order('code', { ascending: true });
       }
       setPosiciones(posRes.data || []);
 
@@ -176,12 +170,16 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
     return () => clearInterval(interval);
   }, []);
 
+  // Supabase Realtime Subscription for Scans & Line Changes
   useEffect(() => {
     if (isOpen && lineId) {
       loadData();
 
-      const channel = supabase.channel(`line-detail-[#005486]-realtime-${lineId}`)
-        .on('postgres_changes', { event: '*', schema: 'public' }, () => {
+      const channel = supabase.channel(`line-detail-realtime-${lineId}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'escaneos' }, () => {
+          loadData();
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'lineas' }, () => {
           loadData();
         })
         .subscribe();
@@ -192,61 +190,103 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
     }
   }, [isOpen, lineId]);
 
-  // Execute quick scan
-  const handlePerformScan = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!scanBadgeInput.trim()) return;
+  // Execute Direct USB Scan Processing
+  const processDirectScan = async (empNum: string) => {
+    if (!lineId || !empNum.trim()) return;
+    const cleanNum = empNum.trim();
 
-    setScanFeedback({ status: null, message: '' });
+    const { isCoverageActive, activeShiftName } = getActiveStaffingTarget(lineId);
+    const eventType = isCoverageActive ? 'MEAL_COVERAGE' : 'TURN_START';
 
-    const { error } = await supabase.from('escaneos').insert({
-      badge_id: scanBadgeInput.trim(),
-      line_id: lineId,
-      event_type: 'shift_start'
+    setScanFeedback({
+      status: 'success',
+      message: `✅ Escaneo registrado: Empleado #${cleanNum}`
     });
 
-    if (error) {
-      setScanFeedback({ status: 'error', message: error.message || 'Error al validar gafete' });
-    } else {
-      setScanFeedback({ status: 'success', message: 'Escaneo registrado exitosamente' });
-      setScanBadgeInput('');
-      loadData();
-      setTimeout(() => {
-        setIsScannerOpen(false);
-        setScanFeedback({ status: null, message: '' });
-      }, 1200);
+    try {
+      await supabase.from('escaneos').insert({
+        line_id: lineId,
+        employee_number: cleanNum,
+        badge_id: cleanNum,
+        scan_time: new Date().toISOString(),
+        event_time: new Date().toISOString(),
+        event_type: eventType,
+        shift: activeShiftName || 'Turno 1',
+        was_successful: true
+      });
+    } catch (err: any) {
+      console.warn('Error saving scan to Supabase:', err);
     }
+
+    setManualScanInput('');
+    loadData();
+
+    setTimeout(() => {
+      setScanFeedback({ status: null, message: '' });
+    }, 3000);
   };
+
+  // Global USB Barcode Reader Keyboard Listener (Emulates USB Keyboard Input ending with Enter)
+  useEffect(() => {
+    if (!isOpen) return;
+
+    let buffer = '';
+    let timer: any = null;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const targetTag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      if (targetTag === 'textarea') return;
+
+      if (e.key === 'Enter') {
+        if (buffer.trim()) {
+          processDirectScan(buffer.trim());
+          buffer = '';
+        }
+      } else if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        buffer += e.key;
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          buffer = '';
+        }, 600);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      clearTimeout(timer);
+    };
+  }, [isOpen, lineId]);
 
   if (!isOpen || !line) return null;
 
   // Active Staffing Target & Coverage Calculations
   const { target, isCoverageActive, activeShiftName } = getActiveStaffingTarget(line.id);
 
-  // Group successful scans to determine present operators
-  const successfulScans = escaneos.filter(s => s.was_successful);
-  const lastScanByBadge: Record<string, any> = {};
-  successfulScans
-    .sort((a, b) => new Date(a.event_time).getTime() - new Date(b.event_time).getTime())
-    .forEach(scan => {
-      lastScanByBadge[scan.badge_id] = scan;
-    });
+  // Group scans for current active shift / distinct employees
+  const distinctScannedEmployees = Array.from(
+    new Set(
+      escaneos
+        .map(s => s.employee_number || s.badge_id)
+        .filter(Boolean)
+    )
+  );
 
-  const presentBadges = Object.values(lastScanByBadge)
-    .filter((s: any) => s.event_type === 'shift_start' || s.event_type === 'lunch_return')
-    .map((s: any) => s.badge_id);
-
-  const presentCount = presentBadges.length;
-  const coveragePct = target > 0 ? Math.round((presentCount / target) * 100) : 0;
+  const scannedCount = distinctScannedEmployees.length;
+  const coveragePct = target > 0 ? Math.round((scannedCount / target) * 100) : 0;
 
   // Color logic for overall line status
   let statusColor = '#EF4444'; // Red
-  if (isCoverageActive && presentCount >= target) {
+  let statusBadgeText = 'FALTA PERSONAL';
+  if (isCoverageActive) {
     statusColor = '#3B82F6'; // Blue
+    statusBadgeText = 'COBERTURA DE COMEDOR ACTIVA';
   } else if (coveragePct >= 100) {
     statusColor = '#22C55E'; // Green
+    statusBadgeText = 'PLANTILLA COMPLETA';
   } else if (coveragePct >= 80) {
     statusColor = '#EAB308'; // Yellow
+    statusBadgeText = 'INTEGRANDO PERSONAL';
   }
 
   // Active Downtime calculation
@@ -343,41 +383,35 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
             className="w-full h-full object-contain rounded-xl opacity-95 select-none pointer-events-none"
           />
 
-          {/* Minimalist Operator Pins (CIRCULAR ICONS ONLY - NO TEXT CARDS ON CANVAS) */}
+          {/* Minimalist Operator Pins (CIRCULAR ICONS ONLY - SEQUENTIAL OCCUPATION BY SCANS) */}
           {posiciones.map((pos, idx) => {
-            const assignedEmp = pos.empleado || assignments.find(a => a.employee_id === pos.employee_id)?.empleado;
-            const badgeId = assignedEmp?.badge_id;
-            const isPresent = Boolean(badgeId && presentBadges.includes(badgeId));
+            const isOccupied = idx < scannedCount;
+            const isWithinTarget = idx < target;
 
             // COLOR RULES:
-            // 🟢 VERDE (#22C55E): Operador presente
-            // 🔴 ROJO (#EF4444): Operador faltante
-            // 🔵 AZUL (#3B82F6): Cobertura de comedor activa (operador en línea)
-            // ⚪ GRIS (#94A3B8): Operador en comedor (posición desocupada temporalmente)
-            let markerColor = '#EF4444'; // RED (missing)
-            let statusLabel = 'Operador Faltante';
+            // 🟢 VERDE (#22C55E): Posición cubierta por escaneo
+            // 🔴 ROJO (#EF4444): Posición vacante / pendiente de escaneo
+            // 🔵 AZUL (#3B82F6): Cobertura de comedor activa
+            // ⚪ GRIS (#94A3B8): Sin estado (fuera de plantilla)
+            let markerColor = '#94A3B8'; // GREY (Sin estado)
+            let statusLabel = 'Sin Estado';
 
-            if (isCoverageActive) {
-              if (isPresent) {
+            if (isOccupied) {
+              if (isCoverageActive) {
                 markerColor = '#3B82F6'; // BLUE
-                statusLabel = 'En Cobertura de Comedor';
+                statusLabel = 'Cobertura Activa';
               } else {
-                markerColor = '#94A3B8'; // GREY
-                statusLabel = 'En Comedor';
-              }
-            } else {
-              if (isPresent) {
                 markerColor = '#22C55E'; // GREEN
-                statusLabel = 'Operador Presente';
-              } else {
-                markerColor = '#EF4444'; // RED
-                statusLabel = 'Operador Faltante';
+                statusLabel = 'Cubierta';
               }
+            } else if (isWithinTarget) {
+              markerColor = '#EF4444'; // RED
+              statusLabel = 'Vacante / Pendiente Escaneo';
             }
 
             return (
               <div 
-                key={pos.id || idx}
+                key={pos.id || pos.code || idx}
                 style={{
                   left: `${pos.x_percent}%`,
                   top: `${pos.y_percent}%`,
@@ -389,7 +423,7 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
                 <div className="relative flex items-center justify-center">
                   {/* Outer pulse ring */}
                   <span 
-                    className="absolute w-8 h-8 rounded-full animate-ping opacity-40"
+                    className={`absolute w-8 h-8 rounded-full opacity-40 ${isOccupied ? 'animate-ping' : ''}`}
                     style={{ backgroundColor: markerColor }}
                   />
                   {/* Outer solid border ring */}
@@ -408,10 +442,10 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
                 </div>
 
                 {/* Floating Tooltip ON HOVER ONLY (Shows Position Code and Operational Status) */}
-                <div className="opacity-0 group-hover:opacity-100 transition-all duration-200 pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2.5 bg-slate-900 text-white p-2.5 rounded-xl z-30 min-w-[140px] shadow-xl border border-slate-800 text-center scale-95 group-hover:scale-100">
+                <div className="opacity-0 group-hover:opacity-100 transition-all duration-200 pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2.5 bg-slate-900 text-white p-2.5 rounded-xl z-30 min-w-[150px] shadow-xl border border-slate-800 text-center scale-95 group-hover:scale-100">
                   <div className="flex items-center justify-between border-b border-slate-800 pb-1 mb-1">
                     <span className="text-xs font-black font-mono text-emerald-400 uppercase tracking-wider">
-                      ● {pos.code || `POS${idx + 1}`}
+                      ● {pos.code || `POS${String(idx + 1).padStart(2, '0')}`}
                     </span>
                     <span 
                       className="w-2 h-2 rounded-full"
@@ -420,7 +454,7 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
                   </div>
 
                   <span className="text-[11px] font-bold text-slate-300 block truncate">
-                    {pos.station_name || pos.code}
+                    {pos.station_name || pos.code || `Estación POS${idx + 1}`}
                   </span>
 
                   <span 
@@ -437,15 +471,23 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
             );
           })}
 
+          {/* Toast Notification Banner for USB Scans */}
+          {scanFeedback.message && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 bg-slate-900 text-white px-5 py-2.5 rounded-2xl shadow-2xl border border-slate-700 font-mono text-xs font-extrabold flex items-center gap-2 animate-in fade-in zoom-in duration-200">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              <span>{scanFeedback.message}</span>
+            </div>
+          )}
+
         </div>
       </main>
 
-      {/* 3. MINIMALIST LIGHT INDICATORS BAR (Bottom Bar) */}
-      <footer className="h-28 shrink-0 bg-white border-t border-[#DCE3EA] px-8 py-3 flex items-center justify-between z-20 shadow-sm">
+      {/* 3. MINIMALIST LIGHT INDICATORS BAR (Bottom Bar with USB Scan Capture Input) */}
+      <footer className="h-28 shrink-0 bg-white border-t border-[#DCE3EA] px-8 py-3 flex items-center justify-between z-20 shadow-sm gap-4">
         
         {/* Left: Large Circular Gauge & Coverage KPI */}
         <div className="flex items-center space-x-6">
-          <LargeCircularGauge percentage={coveragePct} color={statusColor} present={presentCount} target={target} />
+          <LargeCircularGauge percentage={coveragePct} color={statusColor} present={scannedCount} target={target} />
 
           <div className="flex flex-col justify-center">
             <span className="text-2xl font-black uppercase text-slate-900 font-mono tracking-wider">
@@ -456,14 +498,46 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
                 className="px-2.5 py-0.5 rounded-md text-xs font-extrabold font-mono uppercase"
                 style={{ backgroundColor: `${statusColor}15`, color: statusColor, border: `1px solid ${statusColor}40` }}
               >
-                {isCoverageActive ? 'EN COBERTURA DE COMEDOR' : coveragePct >= 100 ? 'PLANTILLA COMPLETA' : 'FALTA PERSONAL'}
+                {statusBadgeText}
               </span>
             </div>
           </div>
         </div>
 
-        {/* Center: Secondary Downtime Indicator */}
-        <div className="hidden lg:flex items-center gap-3.5 bg-[#F5F7FA] border border-[#DCE3EA] px-5 py-2.5 rounded-2xl">
+        {/* Center: Direct USB Barcode Reader Capture Box */}
+        <div className="flex-1 max-w-lg bg-[#F5F7FA] border-2 border-[#DCE3EA] rounded-2xl p-2 flex items-center gap-2 shadow-inner">
+          <div className="p-2 bg-[#005486] text-white rounded-xl shrink-0">
+            <QrCode className="w-5 h-5 animate-pulse" />
+          </div>
+
+          <form 
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (manualScanInput.trim()) {
+                processDirectScan(manualScanInput);
+              }
+            }}
+            className="flex-1 flex items-center gap-2"
+          >
+            <input
+              ref={usbInputRef}
+              type="text"
+              placeholder="Modo Escáner USB Activo (Ej. 1163146 + Enter)..."
+              value={manualScanInput}
+              onChange={(e) => setManualScanInput(e.target.value)}
+              className="w-full bg-white border border-[#DCE3EA] rounded-xl px-3 py-1.5 text-xs text-slate-800 font-mono font-bold focus:outline-none focus:border-[#005486]"
+            />
+            <button
+              type="submit"
+              className="px-4 py-1.5 bg-[#005486] hover:bg-[#003f66] text-white font-extrabold text-xs rounded-xl shadow-sm cursor-pointer shrink-0 transition-all"
+            >
+              Escanear
+            </button>
+          </form>
+        </div>
+
+        {/* Right: Secondary Downtime Indicator */}
+        <div className="hidden xl:flex items-center gap-3.5 bg-[#F5F7FA] border border-[#DCE3EA] px-5 py-2.5 rounded-2xl">
           <div className="p-2 bg-amber-50 text-amber-600 rounded-xl">
             <Clock className="w-5 h-5" />
           </div>
@@ -475,84 +549,7 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
           </div>
         </div>
 
-        {/* Right: Clean Corporate Scan Button */}
-        <div className="flex items-center space-x-4">
-          <button
-            onClick={() => setIsScannerOpen(!isScannerOpen)}
-            className="flex items-center gap-2.5 bg-[#005486] hover:bg-[#00426a] text-white font-extrabold px-6 py-3.5 rounded-2xl shadow-md transition-all cursor-pointer transform hover:scale-105"
-          >
-            <QrCode className="w-5 h-5" />
-            <span className="text-xs uppercase tracking-wider">Escanear Gafete</span>
-          </button>
-        </div>
-
       </footer>
-
-      {/* Inline Quick Scan Modal Drawer (Corporate Light Theme) */}
-      {isScannerOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white border border-[#DCE3EA] w-full max-w-md p-6 rounded-2xl shadow-2xl relative">
-            <button
-              onClick={() => setIsScannerOpen(false)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="flex items-center gap-3 mb-4">
-              <div className="p-2.5 bg-blue-50 text-[#005486] rounded-xl border border-blue-100">
-                <QrCode className="w-6 h-6" />
-              </div>
-              <div>
-                <h3 className="text-lg font-black text-slate-900">Escanear Gafete</h3>
-                <p className="text-xs text-slate-500">Ingrese o escanee el número de empleado</p>
-              </div>
-            </div>
-
-            <form onSubmit={handlePerformScan} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                  Número de Gafete / Empleado
-                </label>
-                <input
-                  ref={scanInputRef}
-                  type="text"
-                  placeholder="Ej. 100234"
-                  value={scanBadgeInput}
-                  onChange={(e) => setScanBadgeInput(e.target.value)}
-                  className="w-full bg-[#F5F7FA] border border-[#DCE3EA] rounded-xl px-4 py-3 text-slate-900 font-mono text-base focus:outline-none focus:border-[#005486]"
-                  autoFocus
-                />
-              </div>
-
-              {scanFeedback.message && (
-                <div className={`p-3 rounded-xl text-xs font-bold flex items-center gap-2 ${
-                  scanFeedback.status === 'success' ? 'bg-emerald-50 border border-emerald-200 text-emerald-700' : 'bg-red-50 border border-red-200 text-red-700'
-                }`}>
-                  {scanFeedback.status === 'success' ? <CheckCircle2 className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
-                  <span>{scanFeedback.message}</span>
-                </div>
-              )}
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsScannerOpen(false)}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 bg-[#005486] hover:bg-[#00426a] text-white rounded-xl text-xs font-extrabold cursor-pointer shadow-sm"
-                >
-                  Validar Escaneo
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
     </div>
   );

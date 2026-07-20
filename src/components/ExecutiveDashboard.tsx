@@ -199,19 +199,13 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
     setTimeout(() => setFeedbackMsg({ type: null, text: '' }), 3000);
   };
 
-  // Helper count present operators
+  // Helper count present operators based on distinct scanned employee numbers
   const getPresentOperatorsCount = (lineId: string) => {
-    const lineScans = scans.filter((s: any) => s.line_id === lineId && s.was_successful);
-    const lastEventMap: Record<string, string> = {};
-    lineScans
-      .sort((a: any, b: any) => new Date(a.event_time).getTime() - new Date(b.event_time).getTime())
-      .forEach((scan: any) => {
-        lastEventMap[scan.badge_id] = scan.event_type;
-      });
-
-    return Object.values(lastEventMap).filter(
-      type => type === 'shift_start' || type === 'lunch_return'
-    ).length;
+    const lineScans = scans.filter((s: any) => s.line_id === lineId);
+    const distinctNumbers = new Set(
+      lineScans.map((s: any) => s.employee_number || s.badge_id).filter(Boolean)
+    );
+    return distinctNumbers.size;
   };
 
   // Helper active downtime minutes
