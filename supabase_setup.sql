@@ -1,27 +1,42 @@
 -- ==============================================================================
--- LINEPULSE MES - SUPABASE DATABASE SETUP SCRIPT
--- Pegar este script completo en el Supabase SQL Editor para crear las tablas,
--- índices, políticas de seguridad RLS y datos iniciales de prueba (seeds).
+-- LINEPULSE MES - SCRIPT SQL MAESTRO COMPLETO PARA SUPABASE
+-- Copiar y pegar este script en el Supabase SQL Editor (SQL Editor -> New Query -> Run)
 -- ==============================================================================
 
--- Habilitar extensión UUID
+-- ------------------------------------------------------------------------------
+-- 0. EXTENSIONES Y FUNCIONES AUXILIARES
+-- ------------------------------------------------------------------------------
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- ------------------------------------------------------------------------------
--- 1. TABLA: AREAS (Áreas de Producción)
--- ------------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS areas (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name VARCHAR(100) UNIQUE NOT NULL,
-    description TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
+-- Función para actualizar automáticamente el campo updated_at al modificar un registro
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
 
 -- ------------------------------------------------------------------------------
--- 2. TABLA: LINEAS (Líneas de Producción)
+-- 1. TABLA: AREAS
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS areas (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(100) UNIQUE NOT NULL,
+    description TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+COMMENT ON TABLE areas IS 'Catálogo de áreas principales de manufactura y producción (SMT, Ensamble, Pruebas)';
+COMMENT ON COLUMN areas.id IS 'Identificador único UUID de la área';
+COMMENT ON COLUMN areas.name IS 'Nombre único del área de planta';
+
+-- ------------------------------------------------------------------------------
+-- 2. TABLA: LINEAS
 -- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS lineas (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     area_id UUID REFERENCES areas(id) ON DELETE CASCADE,
     name VARCHAR(100) NOT NULL,
     process VARCHAR(150),
@@ -33,108 +48,171 @@ CREATE TABLE IF NOT EXISTS lineas (
     shift3_target INTEGER NOT NULL DEFAULT 4,
     status VARCHAR(50) DEFAULT 'FALTA PERSONAL',
     layout_url TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
+COMMENT ON TABLE lineas IS 'Líneas de producción con sus respectivas metas de operadores por turno y layout';
+COMMENT ON COLUMN lineas.area_id IS 'Clave foránea hacia la tabla de áreas';
+COMMENT ON COLUMN lineas.shift1_target IS 'Meta requerida de plantilla para el Turno 1';
+
 -- ------------------------------------------------------------------------------
--- 3. TABLA: EMPLEADOS (Catálogo de Personal)
+-- 3. TABLA: EMPLEADOS
 -- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS empleados (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     badge_id VARCHAR(50) UNIQUE NOT NULL,
     name VARCHAR(150) NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
+COMMENT ON TABLE empleados IS 'Catálogo general de empleados y operadores registrados en el sistema';
+COMMENT ON COLUMN empleados.badge_id IS 'Número de gafete único del empleado';
+
 -- ------------------------------------------------------------------------------
--- 4. TABLA: EMPLEADOS_LINEA (Plantilla Asignada por Línea)
+-- 4. TABLA: EMPLEADOS_LINEA
 -- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS empleados_linea (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     employee_id UUID REFERENCES empleados(id) ON DELETE CASCADE NOT NULL,
     line_id UUID REFERENCES lineas(id) ON DELETE CASCADE NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
     UNIQUE(employee_id, line_id)
 );
 
+COMMENT ON TABLE empleados_linea IS 'Asignación de empleados a líneas de producción (Plantilla registrada)';
+
 -- ------------------------------------------------------------------------------
--- 5. TABLA: LINE_POSITIONS (Posiciones / Estaciones de Trabajo)
+-- 5. TABLA: LINE_POSITIONS (Y POSICIONES)
 -- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS line_positions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    line_id UUID REFERENCES lineas(id) ON DELETE CASCADE NOT NULL,
-    code VARCHAR(50) NOT NULL,           -- Ej. POS01
-    station_name VARCHAR(100) NOT NULL, -- Ej. Stencil Printer
-    employee_id UUID REFERENCES empleados(id) ON DELETE SET NULL,
-    x_percent NUMERIC(5,2) NOT NULL DEFAULT 50.0,
-    y_percent NUMERIC(5,2) NOT NULL DEFAULT 50.0,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Alias/Tabla POSICIONES (Garantiza compatibilidad total)
-CREATE TABLE IF NOT EXISTS posiciones (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     line_id UUID REFERENCES lineas(id) ON DELETE CASCADE NOT NULL,
     code VARCHAR(50) NOT NULL,
     station_name VARCHAR(100) NOT NULL,
     employee_id UUID REFERENCES empleados(id) ON DELETE SET NULL,
     x_percent NUMERIC(5,2) NOT NULL DEFAULT 50.0,
     y_percent NUMERIC(5,2) NOT NULL DEFAULT 50.0,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
+COMMENT ON TABLE line_positions IS 'Posiciones de operador y coordenadas X,Y sobre el plano de la línea';
+
+-- Tabla alias posiciones para asegurar compatibilidad total
+CREATE TABLE IF NOT EXISTS posiciones (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    line_id UUID REFERENCES lineas(id) ON DELETE CASCADE NOT NULL,
+    code VARCHAR(50) NOT NULL,
+    station_name VARCHAR(100) NOT NULL,
+    employee_id UUID REFERENCES empleados(id) ON DELETE SET NULL,
+    x_percent NUMERIC(5,2) NOT NULL DEFAULT 50.0,
+    y_percent NUMERIC(5,2) NOT NULL DEFAULT 50.0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+COMMENT ON TABLE posiciones IS 'Tabla alias de posiciones para compatibilidad en consultas';
+
 -- ------------------------------------------------------------------------------
--- 6. TABLA: LINE_LAYOUTS (Planos de Layout por Línea)
+-- 6. TABLA: LINE_LAYOUTS
 -- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS line_layouts (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     line_id UUID REFERENCES lineas(id) ON DELETE CASCADE NOT NULL,
     image_url TEXT NOT NULL,
     description VARCHAR(255),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
+COMMENT ON TABLE line_layouts IS 'Historial e imágenes de layout blueprint asociadas a cada línea';
+
 -- ------------------------------------------------------------------------------
--- 7. TABLA: COBERTURAS (Reglas de Alivio de Comedor)
+-- 7. TABLA: COBERTURAS
 -- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS coberturas (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     line_id UUID REFERENCES lineas(id) ON DELETE CASCADE NOT NULL,
     start_time TIME NOT NULL,
     end_time TIME NOT NULL,
     required_operators INTEGER NOT NULL DEFAULT 3,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
+COMMENT ON TABLE coberturas IS 'Reglas de ventanas de alivio y cobertura para comedor';
+
 -- ------------------------------------------------------------------------------
--- 8. TABLA: ESCANEOS (Registros de Gafete y Asistencia)
+-- 8. TABLA: ESCANEOS
 -- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS escaneos (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     badge_id VARCHAR(50) NOT NULL,
     employee_name VARCHAR(150) NOT NULL,
     line_id UUID REFERENCES lineas(id) ON DELETE CASCADE,
-    event_time TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    event_time TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
     event_type VARCHAR(50) NOT NULL, -- 'shift_start', 'lunch_start', 'lunch_return', 'shift_end'
-    was_successful BOOLEAN DEFAULT TRUE,
+    was_successful BOOLEAN DEFAULT TRUE NOT NULL,
     error_message TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
+COMMENT ON TABLE escaneos IS 'Registros de escaneo de gafete y eventos de presencia/comedor';
+
 -- ------------------------------------------------------------------------------
--- 9. TABLA: TIEMPOS_MUERTOS (Registros de Downtime)
+-- 9. TABLA: TIEMPOS_MUERTOS
 -- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS tiempos_muertos (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     line_id UUID REFERENCES lineas(id) ON DELETE CASCADE NOT NULL,
-    start_time TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    start_time TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
     end_time TIMESTAMP WITH TIME ZONE,
     duration_minutes INTEGER DEFAULT 0,
     cause TEXT,
-    resolved BOOLEAN DEFAULT FALSE,
-    date DATE DEFAULT CURRENT_DATE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    resolved BOOLEAN DEFAULT FALSE NOT NULL,
+    date DATE DEFAULT CURRENT_DATE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
+
+COMMENT ON TABLE tiempos_muertos IS 'Registros de paros no planificados y tiempo muerto acumulado';
+
+-- ==============================================================================
+-- TRIGGERS PARA ACTUALIZACIÓN AUTOMÁTICA DE TIMESTAMP updated_at
+-- ==============================================================================
+DROP TRIGGER IF EXISTS update_areas_updated_at ON areas;
+CREATE TRIGGER update_areas_updated_at BEFORE UPDATE ON areas FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_lineas_updated_at ON lineas;
+CREATE TRIGGER update_lineas_updated_at BEFORE UPDATE ON lineas FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_empleados_updated_at ON empleados;
+CREATE TRIGGER update_empleados_updated_at BEFORE UPDATE ON empleados FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_empleados_linea_updated_at ON empleados_linea;
+CREATE TRIGGER update_empleados_linea_updated_at BEFORE UPDATE ON empleados_linea FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_line_positions_updated_at ON line_positions;
+CREATE TRIGGER update_line_positions_updated_at BEFORE UPDATE ON line_positions FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_posiciones_updated_at ON posiciones;
+CREATE TRIGGER update_posiciones_updated_at BEFORE UPDATE ON posiciones FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_line_layouts_updated_at ON line_layouts;
+CREATE TRIGGER update_line_layouts_updated_at BEFORE UPDATE ON line_layouts FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_coberturas_updated_at ON coberturas;
+CREATE TRIGGER update_coberturas_updated_at BEFORE UPDATE ON coberturas FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_escaneos_updated_at ON escaneos;
+CREATE TRIGGER update_escaneos_updated_at BEFORE UPDATE ON escaneos FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_tiempos_muertos_updated_at ON tiempos_muertos;
+CREATE TRIGGER update_tiempos_muertos_updated_at BEFORE UPDATE ON tiempos_muertos FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
 
 -- ==============================================================================
 -- CREACIÓN DE ÍNDICES DE RENDIMIENTO
@@ -149,7 +227,7 @@ CREATE INDEX IF NOT EXISTS idx_escaneos_time ON escaneos(event_time);
 CREATE INDEX IF NOT EXISTS idx_tiempos_muertos_line ON tiempos_muertos(line_id);
 
 -- ==============================================================================
--- CONFIGURACIÓN DE POLÍTICAS DE SEGURIDAD (RLS) - PERMISOS PÚBLICOS DE LECTURA/ESCRITURA
+-- ROW LEVEL SECURITY (RLS) & POLÍTICAS PÚBLICAS
 -- ==============================================================================
 ALTER TABLE areas ENABLE ROW LEVEL SECURITY;
 ALTER TABLE lineas ENABLE ROW LEVEL SECURITY;
@@ -162,37 +240,96 @@ ALTER TABLE coberturas ENABLE ROW LEVEL SECURITY;
 ALTER TABLE escaneos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tiempos_muertos ENABLE ROW LEVEL SECURITY;
 
--- Políticas de acceso completo para cliente anon de Supabase
+-- Políticas permisivas para cliente Anon Supabase
+DROP POLICY IF EXISTS "Public access areas" ON areas;
 CREATE POLICY "Public access areas" ON areas FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public access lineas" ON lineas;
 CREATE POLICY "Public access lineas" ON lineas FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public access empleados" ON empleados;
 CREATE POLICY "Public access empleados" ON empleados FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public access empleados_linea" ON empleados_linea;
 CREATE POLICY "Public access empleados_linea" ON empleados_linea FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public access line_positions" ON line_positions;
 CREATE POLICY "Public access line_positions" ON line_positions FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public access posiciones" ON posiciones;
 CREATE POLICY "Public access posiciones" ON posiciones FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public access line_layouts" ON line_layouts;
 CREATE POLICY "Public access line_layouts" ON line_layouts FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public access coberturas" ON coberturas;
 CREATE POLICY "Public access coberturas" ON coberturas FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public access escaneos" ON escaneos;
 CREATE POLICY "Public access escaneos" ON escaneos FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public access tiempos_muertos" ON tiempos_muertos;
 CREATE POLICY "Public access tiempos_muertos" ON tiempos_muertos FOR ALL USING (true) WITH CHECK (true);
 
 -- ==============================================================================
--- POBLADO DE DATOS INICIALES (SEED DATA)
+-- HABILITACIÓN DE SUPABASE REALTIME
 -- ==============================================================================
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
+        ALTER PUBLICATION supabase_realtime ADD TABLE areas;
+        ALTER PUBLICATION supabase_realtime ADD TABLE lineas;
+        ALTER PUBLICATION supabase_realtime ADD TABLE empleados;
+        ALTER PUBLICATION supabase_realtime ADD TABLE line_positions;
+        ALTER PUBLICATION supabase_realtime ADD TABLE posiciones;
+        ALTER PUBLICATION supabase_realtime ADD TABLE line_layouts;
+        ALTER PUBLICATION supabase_realtime ADD TABLE coberturas;
+        ALTER PUBLICATION supabase_realtime ADD TABLE escaneos;
+        ALTER PUBLICATION supabase_realtime ADD TABLE tiempos_muertos;
+    END IF;
+EXCEPTION
+    WHEN OTHERS THEN NULL;
+END $$;
 
--- Insertar Áreas
+-- ==============================================================================
+-- CREACIÓN DE STORAGE BUCKET: line-layouts
+-- ==============================================================================
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('line-layouts', 'line-layouts', true)
+ON CONFLICT (id) DO UPDATE SET public = true;
+
+-- Políticas de RLS para el bucket line-layouts
+DROP POLICY IF EXISTS "Public Read line-layouts" ON storage.objects;
+CREATE POLICY "Public Read line-layouts" ON storage.objects
+FOR SELECT USING (bucket_id = 'line-layouts');
+
+DROP POLICY IF EXISTS "Public Upload line-layouts" ON storage.objects;
+CREATE POLICY "Public Upload line-layouts" ON storage.objects
+FOR INSERT WITH CHECK (bucket_id = 'line-layouts');
+
+DROP POLICY IF EXISTS "Public Update line-layouts" ON storage.objects;
+CREATE POLICY "Public Update line-layouts" ON storage.objects
+FOR UPDATE USING (bucket_id = 'line-layouts');
+
+DROP POLICY IF EXISTS "Public Delete line-layouts" ON storage.objects;
+CREATE POLICY "Public Delete line-layouts" ON storage.objects
+FOR DELETE USING (bucket_id = 'line-layouts');
+
+-- ==============================================================================
+-- DATOS DE PRUEBA INICIALES (SEEDS)
+-- ==============================================================================
 INSERT INTO areas (id, name, description) VALUES
   ('a0000000-0000-0000-0000-000000000001', 'SMT', 'Surface Mount Technology Line'),
   ('a0000000-0000-0000-0000-000000000002', 'Ensamble', 'Assembly and Packaging Line'),
   ('a0000000-0000-0000-0000-000000000003', 'Pruebas', 'Functional & ICT Testing Line')
 ON CONFLICT (name) DO NOTHING;
 
--- Insertar Línea 14 SMT
 INSERT INTO lineas (id, area_id, name, process, shift1_start, shift1_target, shift2_start, shift2_target, shift3_start, shift3_target, status) VALUES
   ('l0000000-0000-0000-0000-000000000014', 'a0000000-0000-0000-0000-000000000001', 'Línea 14', 'SIPLACE Assembly SMT', '06:00:00', 6, '14:00:00', 6, '22:00:00', 4, 'FALTA PERSONAL'),
   ('l0000000-0000-0000-0000-000000000015', 'a0000000-0000-0000-0000-000000000001', 'Línea 15', 'AOI & Solder Reflow', '06:00:00', 5, '14:00:00', 5, '22:00:00', 3, 'COMPLETO'),
   ('l0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000002', 'Línea 01', 'THT & Manual Solder', '06:00:00', 8, '14:00:00', 8, '22:00:00', 6, 'FALTA PERSONAL')
 ON CONFLICT DO NOTHING;
 
--- Insertar Empleados
 INSERT INTO empleados (id, badge_id, name) VALUES
   ('e0000000-0000-0000-0000-000000000001', '100234', 'Juan Pérez'),
   ('e0000000-0000-0000-0000-000000000002', '100112', 'María López'),
@@ -202,7 +339,6 @@ INSERT INTO empleados (id, badge_id, name) VALUES
   ('e0000000-0000-0000-0000-000000000006', '100555', 'Patricia Rivas')
 ON CONFLICT (badge_id) DO NOTHING;
 
--- Insertar Posiciones para Línea 14
 INSERT INTO line_positions (line_id, code, station_name, employee_id, x_percent, y_percent) VALUES
   ('l0000000-0000-0000-0000-000000000014', 'POS01', 'Stencil Printer', 'e0000000-0000-0000-0000-000000000001', 11.0, 50.0),
   ('l0000000-0000-0000-0000-000000000014', 'POS02', 'SIPLACE 01', 'e0000000-0000-0000-0000-000000000002', 26.0, 50.0),
@@ -221,7 +357,6 @@ INSERT INTO posiciones (line_id, code, station_name, employee_id, x_percent, y_p
   ('l0000000-0000-0000-0000-000000000014', 'POS06', 'Empaque', 'e0000000-0000-0000-0000-000000000006', 91.0, 50.0)
 ON CONFLICT DO NOTHING;
 
--- Insertar Coberturas de Comedor
 INSERT INTO coberturas (line_id, start_time, end_time, required_operators) VALUES
   ('l0000000-0000-0000-0000-000000000014', '12:00:00', '12:30:00', 3)
 ON CONFLICT DO NOTHING;
