@@ -1,14 +1,14 @@
 -- ==============================================================================
--- LINEPULSE MES - SCRIPT SQL MAESTRO COMPLETO PARA SUPABASE
--- Copiar y pegar este script en el Supabase SQL Editor (SQL Editor -> New Query -> Run)
+-- LINEPULSE MES - SCRIPT SQL COMPLETO PARA SUPABASE SQL EDITOR
+-- Copiar y pegar este script completo directamente en Supabase SQL Editor y hacer clic en RUN.
 -- ==============================================================================
 
 -- ------------------------------------------------------------------------------
--- 0. EXTENSIONES Y FUNCIONES AUXILIARES
+-- 0. EXTENSIONES Y FUNCIONES DE TIMESTAMPS
 -- ------------------------------------------------------------------------------
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Función para actualizar automáticamente el campo updated_at al modificar un registro
+-- Función Trigger para actualizar el campo updated_at automáticamente
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -28,9 +28,7 @@ CREATE TABLE IF NOT EXISTS areas (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
-COMMENT ON TABLE areas IS 'Catálogo de áreas principales de manufactura y producción (SMT, Ensamble, Pruebas)';
-COMMENT ON COLUMN areas.id IS 'Identificador único UUID de la área';
-COMMENT ON COLUMN areas.name IS 'Nombre único del área de planta';
+COMMENT ON TABLE areas IS 'Catálogo de áreas principales de manufactura (SMT, Ensamble, Pruebas)';
 
 -- ------------------------------------------------------------------------------
 -- 2. TABLA: LINEAS
@@ -52,9 +50,7 @@ CREATE TABLE IF NOT EXISTS lineas (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
-COMMENT ON TABLE lineas IS 'Líneas de producción con sus respectivas metas de operadores por turno y layout';
-COMMENT ON COLUMN lineas.area_id IS 'Clave foránea hacia la tabla de áreas';
-COMMENT ON COLUMN lineas.shift1_target IS 'Meta requerida de plantilla para el Turno 1';
+COMMENT ON TABLE lineas IS 'Líneas de producción con metas de plantilla por turno y plano de layout';
 
 -- ------------------------------------------------------------------------------
 -- 3. TABLA: EMPLEADOS
@@ -67,11 +63,10 @@ CREATE TABLE IF NOT EXISTS empleados (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
-COMMENT ON TABLE empleados IS 'Catálogo general de empleados y operadores registrados en el sistema';
-COMMENT ON COLUMN empleados.badge_id IS 'Número de gafete único del empleado';
+COMMENT ON TABLE empleados IS 'Catálogo de personal u operadores con número de gafete único';
 
 -- ------------------------------------------------------------------------------
--- 4. TABLA: EMPLEADOS_LINEA
+-- 4. TABLA: EMPLEADOS_LINEA (Plantilla Asignada)
 -- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS empleados_linea (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -82,7 +77,7 @@ CREATE TABLE IF NOT EXISTS empleados_linea (
     UNIQUE(employee_id, line_id)
 );
 
-COMMENT ON TABLE empleados_linea IS 'Asignación de empleados a líneas de producción (Plantilla registrada)';
+COMMENT ON TABLE empleados_linea IS 'Asignaciones de empleados a líneas de producción';
 
 -- ------------------------------------------------------------------------------
 -- 5. TABLA: LINE_POSITIONS (Y POSICIONES)
@@ -99,9 +94,9 @@ CREATE TABLE IF NOT EXISTS line_positions (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
-COMMENT ON TABLE line_positions IS 'Posiciones de operador y coordenadas X,Y sobre el plano de la línea';
+COMMENT ON TABLE line_positions IS 'Estaciones de trabajo y coordenadas X,Y sobre el layout de la línea';
 
--- Tabla alias posiciones para asegurar compatibilidad total
+-- Tabla alias posiciones para compatibilidad
 CREATE TABLE IF NOT EXISTS posiciones (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     line_id UUID REFERENCES lineas(id) ON DELETE CASCADE NOT NULL,
@@ -113,8 +108,6 @@ CREATE TABLE IF NOT EXISTS posiciones (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
-
-COMMENT ON TABLE posiciones IS 'Tabla alias de posiciones para compatibilidad en consultas';
 
 -- ------------------------------------------------------------------------------
 -- 6. TABLA: LINE_LAYOUTS
@@ -128,7 +121,7 @@ CREATE TABLE IF NOT EXISTS line_layouts (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
-COMMENT ON TABLE line_layouts IS 'Historial e imágenes de layout blueprint asociadas a cada línea';
+COMMENT ON TABLE line_layouts IS 'Historial e imágenes de blueprint asociadas a cada línea';
 
 -- ------------------------------------------------------------------------------
 -- 7. TABLA: COBERTURAS
@@ -240,7 +233,6 @@ ALTER TABLE coberturas ENABLE ROW LEVEL SECURITY;
 ALTER TABLE escaneos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tiempos_muertos ENABLE ROW LEVEL SECURITY;
 
--- Políticas permisivas para cliente Anon Supabase
 DROP POLICY IF EXISTS "Public access areas" ON areas;
 CREATE POLICY "Public access areas" ON areas FOR ALL USING (true) WITH CHECK (true);
 
@@ -298,7 +290,6 @@ INSERT INTO storage.buckets (id, name, public)
 VALUES ('line-layouts', 'line-layouts', true)
 ON CONFLICT (id) DO UPDATE SET public = true;
 
--- Políticas de RLS para el bucket line-layouts
 DROP POLICY IF EXISTS "Public Read line-layouts" ON storage.objects;
 CREATE POLICY "Public Read line-layouts" ON storage.objects
 FOR SELECT USING (bucket_id = 'line-layouts');
