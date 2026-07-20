@@ -190,35 +190,69 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
     }
   }, [isOpen, lineId]);
 
-  // Execute Direct USB Scan Processing
+  // Execute Direct USB Scan Processing with Instant UI Update
   const processDirectScan = async (empNum: string) => {
     if (!lineId || !empNum.trim()) return;
     const cleanNum = empNum.trim();
 
-    const { isCoverageActive, activeShiftName } = getActiveStaffingTarget(lineId);
+    const { target, isCoverageActive, activeShiftName } = getActiveStaffingTarget(lineId);
     const eventType = isCoverageActive ? 'MEAL_COVERAGE' : 'TURN_START';
+
+    const newScanRecord = {
+      id: `temp-${Date.now()}`,
+      line_id: lineId,
+      employee_number: cleanNum,
+      badge_id: cleanNum,
+      scan_time: new Date().toISOString(),
+      event_time: new Date().toISOString(),
+      event_type: eventType,
+      shift: activeShiftName || 'Turno 1',
+      was_successful: true
+    };
+
+    // 1. Immediately update local state so UI turns GREEN instantly!
+    setEscaneos(prev => [...prev, newScanRecord]);
 
     setScanFeedback({
       status: 'success',
       message: `✅ Escaneo registrado: Empleado #${cleanNum}`
     });
 
+    setManualScanInput('');
+
+    // 2. Persist to Supabase & Update Line Status
     try {
       await supabase.from('escaneos').insert({
         line_id: lineId,
         employee_number: cleanNum,
         badge_id: cleanNum,
-        scan_time: new Date().toISOString(),
-        event_time: new Date().toISOString(),
+        scan_time: newScanRecord.scan_time,
+        event_time: newScanRecord.event_time,
         event_type: eventType,
         shift: activeShiftName || 'Turno 1',
         was_successful: true
       });
+
+      const currentScannedList = [...escaneos, newScanRecord];
+      const updatedDistinctScanned = new Set(
+        currentScannedList.map(s => s.employee_number || s.badge_id).filter(Boolean)
+      ).size;
+
+      const newPct = target > 0 ? Math.round((updatedDistinctScanned / target) * 100) : 0;
+      let newStatus = 'FALTA PERSONAL';
+      if (isCoverageActive) {
+        newStatus = 'COBERTURA DE COMEDOR';
+      } else if (newPct >= 100) {
+        newStatus = 'PLANTILLA COMPLETA';
+      } else if (newPct >= 80) {
+        newStatus = 'INTEGRANDO PERSONAL';
+      }
+
+      await supabase.from('lineas').update({ status: newStatus }).eq('id', lineId);
     } catch (err: any) {
       console.warn('Error saving scan to Supabase:', err);
     }
 
-    setManualScanInput('');
     loadData();
 
     setTimeout(() => {
@@ -256,7 +290,14 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
       window.removeEventListener('keydown', handleKeyDown);
       clearTimeout(timer);
     };
-  }, [isOpen, lineId]);
+  }, [isOpen, lineId, escaneos]);
+
+  // Keep USB Input Focused Automatically
+  useEffect(() => {
+    if (isOpen && usbInputRef.current) {
+      usbInputRef.current.focus();
+    }
+  }, [isOpen]);
 
   if (!isOpen || !line) return null;
 
@@ -504,10 +545,27 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
           </div>
         </div>
 
-        {/* Center: Direct USB Barcode Reader Capture Box */}
-        <div className="flex-1 max-w-lg bg-[#F5F7FA] border-2 border-[#DCE3EA] rounded-2xl p-2 flex items-center gap-2 shadow-inner">
-          <div className="p-2 bg-[#005486] text-white rounded-xl shrink-0">
-            <QrCode className="w-5 h-5 animate-pulse" />
+        {/* Center: Permanent Hands-Free USB Barcode Reader Status Indicator */}
+        <div 
+          onClick={() => usbInputRef.current?.focus()}
+          className="flex-1 max-w-xl bg-emerald-50 border-2 border-emerald-500 rounded-2xl p-2.5 flex items-center justify-between shadow-sm cursor-pointer group"
+          title="Haga clic para asegurar el foco del escáner USB"
+        >
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-emerald-600 text-white rounded-xl shadow">
+              <QrCode className="w-5 h-5 animate-pulse" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping" />
+                <span className="text-xs font-black text-emerald-900 uppercase tracking-wider font-mono">
+                  🟢 ESCÁNER USB ACTIVO
+                </span>
+              </div>
+              <span className="text-[11px] font-bold text-emerald-700 block mt-0.5">
+                Listo para recibir lectura de gafetes...
+              </span>
+            </div>
           </div>
 
           <form 
@@ -517,22 +575,22 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
                 processDirectScan(manualScanInput);
               }
             }}
-            className="flex-1 flex items-center gap-2"
+            className="flex items-center gap-2"
           >
             <input
               ref={usbInputRef}
               type="text"
-              placeholder="Modo Escáner USB Activo (Ej. 1163146 + Enter)..."
+              placeholder="Escaneo auto (Ej. 1163146 + Enter)..."
               value={manualScanInput}
               onChange={(e) => setManualScanInput(e.target.value)}
-              className="w-full bg-white border border-[#DCE3EA] rounded-xl px-3 py-1.5 text-xs text-slate-800 font-mono font-bold focus:outline-none focus:border-[#005486]"
+              onBlur={() => {
+                setTimeout(() => {
+                  usbInputRef.current?.focus();
+                }, 150);
+              }}
+              className="w-48 bg-white border border-emerald-300 rounded-xl px-3 py-1.5 text-xs text-slate-800 font-mono font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              autoFocus
             />
-            <button
-              type="submit"
-              className="px-4 py-1.5 bg-[#005486] hover:bg-[#003f66] text-white font-extrabold text-xs rounded-xl shadow-sm cursor-pointer shrink-0 transition-all"
-            >
-              Escanear
-            </button>
           </form>
         </div>
 

@@ -33,7 +33,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
   const [rightPanelMode, setRightPanelMode] = useState<'analytics' | 'config'>('analytics');
 
   // Configuration Sub-Tab state
-  const [configSubTab, setConfigSubTab] = useState<'lines' | 'coverages' | 'layout'>('lines');
+  const [configSubTab, setConfigSubTab] = useState<'lines' | 'coverages' | 'layout' | 'registros'>('lines');
   
   // Modal State for + Nueva Línea
   const [isLineCreateModalOpen, setIsLineCreateModalOpen] = useState(false);
@@ -889,6 +889,14 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                   >
                     Coberturas Comedor
                   </button>
+                  <button
+                    onClick={() => setConfigSubTab('registros')}
+                    className={`text-xs font-bold uppercase tracking-wider h-full border-b-2 flex items-center cursor-pointer ${
+                      configSubTab === 'registros' ? 'border-[#005486] text-[#005486]' : 'border-transparent text-slate-500'
+                    }`}
+                  >
+                    Registros
+                  </button>
                 </div>
 
                 {/* SUB-TAB 1: PARAMETROS */}
@@ -1114,6 +1122,85 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                           {cov.start_time} - {cov.end_time} | Target: {cov.required_operators} op
                         </div>
                       ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* SUB-TAB 4: REGISTROS DE ESCANEO */}
+                {configSubTab === 'registros' && (
+                  <div className="space-y-3 text-xs">
+                    <div className="flex items-center justify-between bg-[#F5F7FA] p-3 rounded-xl border border-[#DCE3EA]">
+                      <span className="font-extrabold text-[#005486] uppercase tracking-wider text-[11px] flex items-center gap-1.5 font-mono">
+                        <Clock className="w-4 h-4 text-[#005486]" />
+                        Historial de Escaneos — {selectedLine.name}
+                      </span>
+                      <span className="text-[10px] text-slate-500 font-bold font-mono">
+                        Total: {scans.filter((s: any) => s.line_id === selectedLineId).length} registros
+                      </span>
+                    </div>
+
+                    <div className="border border-[#DCE3EA] rounded-xl overflow-hidden shadow-sm bg-white max-h-[360px] overflow-y-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead className="bg-[#F5F7FA] sticky top-0 z-10 border-b border-[#DCE3EA] text-[10px] font-black uppercase text-slate-600 tracking-wider">
+                          <tr>
+                            <th className="py-2.5 px-3">Número Empleado</th>
+                            <th className="py-2.5 px-3">Hora Registro</th>
+                            <th className="py-2.5 px-3">Fecha</th>
+                            <th className="py-2.5 px-3">Tipo Evento</th>
+                            <th className="py-2.5 px-3">Línea</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#DCE3EA] text-xs">
+                          {(() => {
+                            const lineScans = scans
+                              .filter((s: any) => s.line_id === selectedLineId)
+                              .sort((a: any, b: any) => new Date(b.scan_time || b.created_at || b.event_time || 0).getTime() - new Date(a.scan_time || a.created_at || a.event_time || 0).getTime());
+
+                            if (lineScans.length === 0) {
+                              return (
+                                <tr>
+                                  <td colSpan={5} className="py-8 text-center text-slate-400 font-semibold italic">
+                                    No hay escaneos registrados para esta línea.
+                                  </td>
+                                </tr>
+                              );
+                            }
+
+                            return lineScans.map((s: any) => {
+                              const dt = new Date(s.scan_time || s.created_at || s.event_time);
+                              const isValidDate = !isNaN(dt.getTime());
+                              const timeStr = isValidDate ? dt.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '--:--:--';
+                              const dateStr = isValidDate ? dt.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Hoy';
+                              const empNum = s.employee_number || s.badge_id || 'N/A';
+                              const eventType = s.event_type || 'TURN_START';
+
+                              return (
+                                <tr key={s.id || `${empNum}-${dt.getTime()}`} className="hover:bg-[#F5F7FA] transition-colors">
+                                  <td className="py-2.5 px-3 font-mono font-extrabold text-[#005486]">
+                                    {empNum}
+                                  </td>
+                                  <td className="py-2.5 px-3 font-mono text-slate-800 font-bold">
+                                    {timeStr}
+                                  </td>
+                                  <td className="py-2.5 px-3 text-slate-600 font-semibold">
+                                    {dateStr}
+                                  </td>
+                                  <td className="py-2.5 px-3">
+                                    <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase ${
+                                      eventType === 'MEAL_COVERAGE' ? 'bg-blue-100 text-blue-700 border border-blue-200' : 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                                    }`}>
+                                      {eventType}
+                                    </span>
+                                  </td>
+                                  <td className="py-2.5 px-3 font-bold text-slate-700">
+                                    {selectedLine.name}
+                                  </td>
+                                </tr>
+                              );
+                            });
+                          })()}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
                 )}
