@@ -1,6 +1,7 @@
 -- ==============================================================================
--- LINEPULSE MES - SCRIPT SQL MAESTRO COMPLETO PARA SUPABASE
--- Copiar y pegar este script en el Supabase SQL Editor (SQL Editor -> New Query -> Run)
+-- LINEPULSE MES - SCRIPT SQL COMPLETO DDL (ESTRUCTURA DE TABLAS)
+-- Para Supabase PostgreSQL Editor (Sin datos de prueba hardcodeados)
+-- Usando exclusivamente gen_random_uuid() para llaves primarias
 -- ==============================================================================
 
 -- 0. EXTENSIONES Y FUNCIONES AUXILIARES
@@ -60,7 +61,7 @@ CREATE TABLE IF NOT EXISTS empleados_linea (
     UNIQUE(employee_id, line_id)
 );
 
--- 5. TABLA: LINE_POSITIONS (Y POSICIONES)
+-- 5. TABLA: LINE_POSITIONS Y POSICIONES
 CREATE TABLE IF NOT EXISTS line_positions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     line_id UUID REFERENCES lineas(id) ON DELETE CASCADE NOT NULL,
@@ -165,7 +166,7 @@ CREATE TRIGGER update_escaneos_updated_at BEFORE UPDATE ON escaneos FOR EACH ROW
 DROP TRIGGER IF EXISTS update_tiempos_muertos_updated_at ON tiempos_muertos;
 CREATE TRIGGER update_tiempos_muertos_updated_at BEFORE UPDATE ON tiempos_muertos FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
 
--- INDICES
+-- INDICES DE RENDIMIENTO
 CREATE INDEX IF NOT EXISTS idx_lineas_area ON lineas(area_id);
 CREATE INDEX IF NOT EXISTS idx_line_positions_line ON line_positions(line_id);
 CREATE INDEX IF NOT EXISTS idx_posiciones_line ON posiciones(line_id);
@@ -175,7 +176,7 @@ CREATE INDEX IF NOT EXISTS idx_escaneos_badge ON escaneos(badge_id);
 CREATE INDEX IF NOT EXISTS idx_escaneos_time ON escaneos(event_time);
 CREATE INDEX IF NOT EXISTS idx_tiempos_muertos_line ON tiempos_muertos(line_id);
 
--- RLS POLICIES
+-- POLÍTICAS RLS PÚBLICAS
 ALTER TABLE areas ENABLE ROW LEVEL SECURITY;
 ALTER TABLE lineas ENABLE ROW LEVEL SECURITY;
 ALTER TABLE empleados ENABLE ROW LEVEL SECURITY;
@@ -187,15 +188,34 @@ ALTER TABLE coberturas ENABLE ROW LEVEL SECURITY;
 ALTER TABLE escaneos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tiempos_muertos ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Public access areas" ON areas;
 CREATE POLICY "Public access areas" ON areas FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public access lineas" ON lineas;
 CREATE POLICY "Public access lineas" ON lineas FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public access empleados" ON empleados;
 CREATE POLICY "Public access empleados" ON empleados FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public access empleados_linea" ON empleados_linea;
 CREATE POLICY "Public access empleados_linea" ON empleados_linea FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public access line_positions" ON line_positions;
 CREATE POLICY "Public access line_positions" ON line_positions FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public access posiciones" ON posiciones;
 CREATE POLICY "Public access posiciones" ON posiciones FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public access line_layouts" ON line_layouts;
 CREATE POLICY "Public access line_layouts" ON line_layouts FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public access coberturas" ON coberturas;
 CREATE POLICY "Public access coberturas" ON coberturas FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public access escaneos" ON escaneos;
 CREATE POLICY "Public access escaneos" ON escaneos FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public access tiempos_muertos" ON tiempos_muertos;
 CREATE POLICY "Public access tiempos_muertos" ON tiempos_muertos FOR ALL USING (true) WITH CHECK (true);
 
 -- STORAGE BUCKET
@@ -203,7 +223,18 @@ INSERT INTO storage.buckets (id, name, public)
 VALUES ('line-layouts', 'line-layouts', true)
 ON CONFLICT (id) DO UPDATE SET public = true;
 
-CREATE POLICY "Public Read line-layouts" ON storage.objects FOR SELECT USING (bucket_id = 'line-layouts');
-CREATE POLICY "Public Upload line-layouts" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'line-layouts');
-CREATE POLICY "Public Update line-layouts" ON storage.objects FOR UPDATE USING (bucket_id = 'line-layouts');
-CREATE POLICY "Public Delete line-layouts" ON storage.objects FOR DELETE USING (bucket_id = 'line-layouts');
+DROP POLICY IF EXISTS "Public Read line-layouts" ON storage.objects;
+CREATE POLICY "Public Read line-layouts" ON storage.objects
+FOR SELECT USING (bucket_id = 'line-layouts');
+
+DROP POLICY IF EXISTS "Public Upload line-layouts" ON storage.objects;
+CREATE POLICY "Public Upload line-layouts" ON storage.objects
+FOR INSERT WITH CHECK (bucket_id = 'line-layouts');
+
+DROP POLICY IF EXISTS "Public Update line-layouts" ON storage.objects;
+CREATE POLICY "Public Update line-layouts" ON storage.objects
+FOR UPDATE USING (bucket_id = 'line-layouts');
+
+DROP POLICY IF EXISTS "Public Delete line-layouts" ON storage.objects;
+CREATE POLICY "Public Delete line-layouts" ON storage.objects
+FOR DELETE USING (bucket_id = 'line-layouts');

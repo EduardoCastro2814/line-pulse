@@ -1,14 +1,12 @@
 -- ==============================================================================
--- LINEPULSE MES - SCRIPT SQL COMPLETO PARA SUPABASE SQL EDITOR
--- Copiar y pegar este script completo directamente en Supabase SQL Editor y hacer clic en RUN.
+-- LINEPULSE MES - SCRIPT SQL COMPLETO DDL (ESTRUCTURA DE TABLAS)
+-- Para Supabase PostgreSQL Editor (Sin datos de prueba hardcodeados)
+-- Usando exclusivamente gen_random_uuid() para llaves primarias
 -- ==============================================================================
 
--- ------------------------------------------------------------------------------
--- 0. EXTENSIONES Y FUNCIONES DE TIMESTAMPS
--- ------------------------------------------------------------------------------
+-- 0. EXTENSIONES Y FUNCIONES AUXILIARES
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Función Trigger para actualizar el campo updated_at automáticamente
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -17,9 +15,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- ------------------------------------------------------------------------------
 -- 1. TABLA: AREAS
--- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS areas (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(100) UNIQUE NOT NULL,
@@ -28,11 +24,9 @@ CREATE TABLE IF NOT EXISTS areas (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
-COMMENT ON TABLE areas IS 'Catálogo de áreas principales de manufactura (SMT, Ensamble, Pruebas)';
+COMMENT ON TABLE areas IS 'Catálogo de áreas de manufactura';
 
--- ------------------------------------------------------------------------------
 -- 2. TABLA: LINEAS
--- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS lineas (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     area_id UUID REFERENCES areas(id) ON DELETE CASCADE,
@@ -50,11 +44,9 @@ CREATE TABLE IF NOT EXISTS lineas (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
-COMMENT ON TABLE lineas IS 'Líneas de producción con metas de plantilla por turno y plano de layout';
+COMMENT ON TABLE lineas IS 'Líneas de producción y metas de plantilla por turno';
 
--- ------------------------------------------------------------------------------
 -- 3. TABLA: EMPLEADOS
--- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS empleados (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     badge_id VARCHAR(50) UNIQUE NOT NULL,
@@ -63,11 +55,9 @@ CREATE TABLE IF NOT EXISTS empleados (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
-COMMENT ON TABLE empleados IS 'Catálogo de personal u operadores con número de gafete único';
+COMMENT ON TABLE empleados IS 'Catálogo de empleados y número de gafete único';
 
--- ------------------------------------------------------------------------------
--- 4. TABLA: EMPLEADOS_LINEA (Plantilla Asignada)
--- ------------------------------------------------------------------------------
+-- 4. TABLA: EMPLEADOS_LINEA
 CREATE TABLE IF NOT EXISTS empleados_linea (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     employee_id UUID REFERENCES empleados(id) ON DELETE CASCADE NOT NULL,
@@ -77,11 +67,9 @@ CREATE TABLE IF NOT EXISTS empleados_linea (
     UNIQUE(employee_id, line_id)
 );
 
-COMMENT ON TABLE empleados_linea IS 'Asignaciones de empleados a líneas de producción';
+COMMENT ON TABLE empleados_linea IS 'Asignaciones de plantilla de empleados a líneas';
 
--- ------------------------------------------------------------------------------
--- 5. TABLA: LINE_POSITIONS (Y POSICIONES)
--- ------------------------------------------------------------------------------
+-- 5. TABLA: LINE_POSITIONS
 CREATE TABLE IF NOT EXISTS line_positions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     line_id UUID REFERENCES lineas(id) ON DELETE CASCADE NOT NULL,
@@ -96,7 +84,7 @@ CREATE TABLE IF NOT EXISTS line_positions (
 
 COMMENT ON TABLE line_positions IS 'Estaciones de trabajo y coordenadas X,Y sobre el layout de la línea';
 
--- Tabla alias posiciones para compatibilidad
+-- TABLA ALIAS: POSICIONES
 CREATE TABLE IF NOT EXISTS posiciones (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     line_id UUID REFERENCES lineas(id) ON DELETE CASCADE NOT NULL,
@@ -109,9 +97,9 @@ CREATE TABLE IF NOT EXISTS posiciones (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
--- ------------------------------------------------------------------------------
+COMMENT ON TABLE posiciones IS 'Tabla alias de posiciones para compatibilidad';
+
 -- 6. TABLA: LINE_LAYOUTS
--- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS line_layouts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     line_id UUID REFERENCES lineas(id) ON DELETE CASCADE NOT NULL,
@@ -123,9 +111,7 @@ CREATE TABLE IF NOT EXISTS line_layouts (
 
 COMMENT ON TABLE line_layouts IS 'Historial e imágenes de blueprint asociadas a cada línea';
 
--- ------------------------------------------------------------------------------
 -- 7. TABLA: COBERTURAS
--- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS coberturas (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     line_id UUID REFERENCES lineas(id) ON DELETE CASCADE NOT NULL,
@@ -136,18 +122,16 @@ CREATE TABLE IF NOT EXISTS coberturas (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
-COMMENT ON TABLE coberturas IS 'Reglas de ventanas de alivio y cobertura para comedor';
+COMMENT ON TABLE coberturas IS 'Reglas de alivio y coberturas de comedor por línea';
 
--- ------------------------------------------------------------------------------
 -- 8. TABLA: ESCANEOS
--- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS escaneos (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     badge_id VARCHAR(50) NOT NULL,
     employee_name VARCHAR(150) NOT NULL,
     line_id UUID REFERENCES lineas(id) ON DELETE CASCADE,
     event_time TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    event_type VARCHAR(50) NOT NULL, -- 'shift_start', 'lunch_start', 'lunch_return', 'shift_end'
+    event_type VARCHAR(50) NOT NULL,
     was_successful BOOLEAN DEFAULT TRUE NOT NULL,
     error_message TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
@@ -156,9 +140,7 @@ CREATE TABLE IF NOT EXISTS escaneos (
 
 COMMENT ON TABLE escaneos IS 'Registros de escaneo de gafete y eventos de presencia/comedor';
 
--- ------------------------------------------------------------------------------
 -- 9. TABLA: TIEMPOS_MUERTOS
--- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS tiempos_muertos (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     line_id UUID REFERENCES lineas(id) ON DELETE CASCADE NOT NULL,
@@ -172,11 +154,9 @@ CREATE TABLE IF NOT EXISTS tiempos_muertos (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
-COMMENT ON TABLE tiempos_muertos IS 'Registros de paros no planificados y tiempo muerto acumulado';
+COMMENT ON TABLE tiempos_muertos IS 'Registros de paros no planificados y tiempo muerto';
 
--- ==============================================================================
--- TRIGGERS PARA ACTUALIZACIÓN AUTOMÁTICA DE TIMESTAMP updated_at
--- ==============================================================================
+-- TRIGGERS DE UPDATED_AT
 DROP TRIGGER IF EXISTS update_areas_updated_at ON areas;
 CREATE TRIGGER update_areas_updated_at BEFORE UPDATE ON areas FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
 
@@ -207,9 +187,7 @@ CREATE TRIGGER update_escaneos_updated_at BEFORE UPDATE ON escaneos FOR EACH ROW
 DROP TRIGGER IF EXISTS update_tiempos_muertos_updated_at ON tiempos_muertos;
 CREATE TRIGGER update_tiempos_muertos_updated_at BEFORE UPDATE ON tiempos_muertos FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
 
--- ==============================================================================
--- CREACIÓN DE ÍNDICES DE RENDIMIENTO
--- ==============================================================================
+-- INDICES DE RENDIMIENTO
 CREATE INDEX IF NOT EXISTS idx_lineas_area ON lineas(area_id);
 CREATE INDEX IF NOT EXISTS idx_line_positions_line ON line_positions(line_id);
 CREATE INDEX IF NOT EXISTS idx_posiciones_line ON posiciones(line_id);
@@ -219,9 +197,7 @@ CREATE INDEX IF NOT EXISTS idx_escaneos_badge ON escaneos(badge_id);
 CREATE INDEX IF NOT EXISTS idx_escaneos_time ON escaneos(event_time);
 CREATE INDEX IF NOT EXISTS idx_tiempos_muertos_line ON tiempos_muertos(line_id);
 
--- ==============================================================================
--- ROW LEVEL SECURITY (RLS) & POLÍTICAS PÚBLICAS
--- ==============================================================================
+-- POLÍTICAS RLS PÚBLICAS
 ALTER TABLE areas ENABLE ROW LEVEL SECURITY;
 ALTER TABLE lineas ENABLE ROW LEVEL SECURITY;
 ALTER TABLE empleados ENABLE ROW LEVEL SECURITY;
@@ -263,9 +239,7 @@ CREATE POLICY "Public access escaneos" ON escaneos FOR ALL USING (true) WITH CHE
 DROP POLICY IF EXISTS "Public access tiempos_muertos" ON tiempos_muertos;
 CREATE POLICY "Public access tiempos_muertos" ON tiempos_muertos FOR ALL USING (true) WITH CHECK (true);
 
--- ==============================================================================
--- HABILITACIÓN DE SUPABASE REALTIME
--- ==============================================================================
+-- SUPABASE REALTIME
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
@@ -283,9 +257,7 @@ EXCEPTION
     WHEN OTHERS THEN NULL;
 END $$;
 
--- ==============================================================================
--- CREACIÓN DE STORAGE BUCKET: line-layouts
--- ==============================================================================
+-- STORAGE BUCKET: line-layouts
 INSERT INTO storage.buckets (id, name, public)
 VALUES ('line-layouts', 'line-layouts', true)
 ON CONFLICT (id) DO UPDATE SET public = true;
@@ -305,49 +277,3 @@ FOR UPDATE USING (bucket_id = 'line-layouts');
 DROP POLICY IF EXISTS "Public Delete line-layouts" ON storage.objects;
 CREATE POLICY "Public Delete line-layouts" ON storage.objects
 FOR DELETE USING (bucket_id = 'line-layouts');
-
--- ==============================================================================
--- DATOS DE PRUEBA INICIALES (SEEDS)
--- ==============================================================================
-INSERT INTO areas (id, name, description) VALUES
-  ('a0000000-0000-0000-0000-000000000001', 'SMT', 'Surface Mount Technology Line'),
-  ('a0000000-0000-0000-0000-000000000002', 'Ensamble', 'Assembly and Packaging Line'),
-  ('a0000000-0000-0000-0000-000000000003', 'Pruebas', 'Functional & ICT Testing Line')
-ON CONFLICT (name) DO NOTHING;
-
-INSERT INTO lineas (id, area_id, name, process, shift1_start, shift1_target, shift2_start, shift2_target, shift3_start, shift3_target, status) VALUES
-  ('l0000000-0000-0000-0000-000000000014', 'a0000000-0000-0000-0000-000000000001', 'Línea 14', 'SIPLACE Assembly SMT', '06:00:00', 6, '14:00:00', 6, '22:00:00', 4, 'FALTA PERSONAL'),
-  ('l0000000-0000-0000-0000-000000000015', 'a0000000-0000-0000-0000-000000000001', 'Línea 15', 'AOI & Solder Reflow', '06:00:00', 5, '14:00:00', 5, '22:00:00', 3, 'COMPLETO'),
-  ('l0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000002', 'Línea 01', 'THT & Manual Solder', '06:00:00', 8, '14:00:00', 8, '22:00:00', 6, 'FALTA PERSONAL')
-ON CONFLICT DO NOTHING;
-
-INSERT INTO empleados (id, badge_id, name) VALUES
-  ('e0000000-0000-0000-0000-000000000001', '100234', 'Juan Pérez'),
-  ('e0000000-0000-0000-0000-000000000002', '100112', 'María López'),
-  ('e0000000-0000-0000-0000-000000000003', '100876', 'Carlos Ruiz'),
-  ('e0000000-0000-0000-0000-000000000004', '100999', 'Ana García'),
-  ('e0000000-0000-0000-0000-000000000005', '100777', 'Miguel Torres'),
-  ('e0000000-0000-0000-0000-000000000006', '100555', 'Patricia Rivas')
-ON CONFLICT (badge_id) DO NOTHING;
-
-INSERT INTO line_positions (line_id, code, station_name, employee_id, x_percent, y_percent) VALUES
-  ('l0000000-0000-0000-0000-000000000014', 'POS01', 'Stencil Printer', 'e0000000-0000-0000-0000-000000000001', 11.0, 50.0),
-  ('l0000000-0000-0000-0000-000000000014', 'POS02', 'SIPLACE 01', 'e0000000-0000-0000-0000-000000000002', 26.0, 50.0),
-  ('l0000000-0000-0000-0000-000000000014', 'POS03', 'SIPLACE 02', 'e0000000-0000-0000-0000-000000000003', 42.0, 50.0),
-  ('l0000000-0000-0000-0000-000000000014', 'POS04', 'Horno Reflow', 'e0000000-0000-0000-0000-000000000004', 63.0, 50.0),
-  ('l0000000-0000-0000-0000-000000000014', 'POS05', 'Inspección AOI', 'e0000000-0000-0000-0000-000000000005', 80.0, 50.0),
-  ('l0000000-0000-0000-0000-000000000014', 'POS06', 'Empaque', 'e0000000-0000-0000-0000-000000000006', 91.0, 50.0)
-ON CONFLICT DO NOTHING;
-
-INSERT INTO posiciones (line_id, code, station_name, employee_id, x_percent, y_percent) VALUES
-  ('l0000000-0000-0000-0000-000000000014', 'POS01', 'Stencil Printer', 'e0000000-0000-0000-0000-000000000001', 11.0, 50.0),
-  ('l0000000-0000-0000-0000-000000000014', 'POS02', 'SIPLACE 01', 'e0000000-0000-0000-0000-000000000002', 26.0, 50.0),
-  ('l0000000-0000-0000-0000-000000000014', 'POS03', 'SIPLACE 02', 'e0000000-0000-0000-0000-000000000003', 42.0, 50.0),
-  ('l0000000-0000-0000-0000-000000000014', 'POS04', 'Horno Reflow', 'e0000000-0000-0000-0000-000000000004', 63.0, 50.0),
-  ('l0000000-0000-0000-0000-000000000014', 'POS05', 'Inspección AOI', 'e0000000-0000-0000-0000-000000000005', 80.0, 50.0),
-  ('l0000000-0000-0000-0000-000000000014', 'POS06', 'Empaque', 'e0000000-0000-0000-0000-000000000006', 91.0, 50.0)
-ON CONFLICT DO NOTHING;
-
-INSERT INTO coberturas (line_id, start_time, end_time, required_operators) VALUES
-  ('l0000000-0000-0000-0000-000000000014', '12:00:00', '12:30:00', 3)
-ON CONFLICT DO NOTHING;
