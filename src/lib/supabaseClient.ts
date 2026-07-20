@@ -11,12 +11,14 @@ export const isMock = !supabaseUrl || !supabaseAnonKey;
 const MOCK_STORAGE_PREFIX = 'linepulse_v2_';
 const getStorageKey = (table: string) => `${MOCK_STORAGE_PREFIX}${table}`;
 
+export const DEFAULT_SMT_LAYOUT = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400" width="1200" height="400"><rect width="1200" height="400" fill="%230B1329" rx="12"/><path d="M0 50 H1200 M0 100 H1200 M0 150 H1200 M0 200 H1200 M0 250 H1200 M0 300 H1200 M0 350 H1200" stroke="%231E293B" stroke-width="1" stroke-dasharray="4 4"/><path d="M100 0 V400 M200 0 V400 M300 0 V400 M400 0 V400 M500 0 V400 M600 0 V400 M700 0 V400 M800 0 V400 M900 0 V400 M1000 0 V400 M1100 0 V400" stroke="%231E293B" stroke-width="1" stroke-dasharray="4 4"/><rect x="40" y="80" width="1120" height="240" fill="none" stroke="%23334155" stroke-width="2" stroke-dasharray="8 6" rx="8"/><rect x="70" y="140" width="120" height="120" fill="%231E293B" stroke="%2338BDF8" stroke-width="2" rx="6"/><text x="130" y="205" fill="%2394A3B8" font-size="14" font-weight="bold" font-family="monospace" text-anchor="middle">STENCIL PRINTER</text><line x1="190" y1="200" x2="230" y2="200" stroke="%2338BDF8" stroke-width="4" stroke-dasharray="4 4"/><rect x="230" y="130" width="160" height="140" fill="%231E293B" stroke="%2338BDF8" stroke-width="2" rx="6"/><text x="310" y="205" fill="%2338BDF8" font-size="14" font-weight="bold" font-family="monospace" text-anchor="middle">SIPLACE 01</text><line x1="390" y1="200" x2="430" y2="200" stroke="%2338BDF8" stroke-width="4" stroke-dasharray="4 4"/><rect x="430" y="130" width="160" height="140" fill="%231E293B" stroke="%2338BDF8" stroke-width="2" rx="6"/><text x="510" y="205" fill="%2338BDF8" font-size="14" font-weight="bold" font-family="monospace" text-anchor="middle">SIPLACE 02</text><line x1="590" y1="200" x2="630" y2="200" stroke="%2338BDF8" stroke-width="4" stroke-dasharray="4 4"/><rect x="630" y="120" width="240" height="160" fill="%231E293B" stroke="%23F59E0B" stroke-width="2" rx="6"/><text x="750" y="205" fill="%23F59E0B" font-size="15" font-weight="bold" font-family="monospace" text-anchor="middle">HORNO REFLOW</text><line x1="870" y1="200" x2="910" y2="200" stroke="%2338BDF8" stroke-width="4" stroke-dasharray="4 4"/><rect x="910" y="140" width="110" height="120" fill="%231E293B" stroke="%2310B981" stroke-width="2" rx="6"/><text x="965" y="205" fill="%2310B981" font-size="14" font-weight="bold" font-family="monospace" text-anchor="middle">INSPECCION AOI</text><line x1="1020" y1="200" x2="1050" y2="200" stroke="%2338BDF8" stroke-width="4" stroke-dasharray="4 4"/><rect x="1050" y="140" width="90" height="120" fill="%231E293B" stroke="%23A855F7" stroke-width="2" rx="6"/><text x="1095" y="205" fill="%23A855F7" font-size="13" font-weight="bold" font-family="monospace" text-anchor="middle">EMPAQUE</text></svg>`;
+
 // Helper to load table from localStorage or initialize with seed data
 export const loadTable = (tableName: string): any[] => {
   const stored = localStorage.getItem(getStorageKey(tableName));
   if (stored) {
     const parsed = JSON.parse(stored);
-    // Force re-seeding if the old seed data (less than 12 lines) is present in local storage
+    // Force re-seeding if the old seed data (less than 12 lines) or missing posiciones table is present in local storage
     if (tableName === 'lineas' && parsed.length < 12) {
       localStorage.removeItem(getStorageKey('lineas'));
       localStorage.removeItem(getStorageKey('empleados'));
@@ -24,6 +26,7 @@ export const loadTable = (tableName: string): any[] => {
       localStorage.removeItem(getStorageKey('escaneos'));
       localStorage.removeItem(getStorageKey('tiempos_muertos'));
       localStorage.removeItem(getStorageKey('historial_eventos'));
+      localStorage.removeItem(getStorageKey('posiciones'));
       // Fall through to seed
     } else {
       return parsed;
@@ -379,12 +382,39 @@ function getSeedData(): Record<string, any[]> {
     { id: 'he-4', event_type: 'plantilla_completa', line_id: 'line-15', description: 'Línea Línea 15 completó su plantilla requerida.', timestamp: `${todayStr}T06:01:00.000Z` }
   ];
 
+  const posiciones = [
+    // Linea 14 (SMT) - 6 posiciones mapeadas sobre el layout blueprint
+    { id: 'pos-14-1', line_id: 'line-14', code: 'POS01', station_name: 'Stencil', employee_id: 'emp-1001', x_percent: 11, y_percent: 72 },
+    { id: 'pos-14-2', line_id: 'line-14', code: 'POS02', station_name: 'SIPLACE 01', employee_id: 'emp-1002', x_percent: 26, y_percent: 72 },
+    { id: 'pos-14-3', line_id: 'line-14', code: 'POS03', station_name: 'SIPLACE 02', employee_id: 'emp-1003', x_percent: 42, y_percent: 72 },
+    { id: 'pos-14-4', line_id: 'line-14', code: 'POS04', station_name: 'Horno Reflow', employee_id: 'emp-1004', x_percent: 63, y_percent: 72 },
+    { id: 'pos-14-5', line_id: 'line-14', code: 'POS05', station_name: 'Inspección AOI', employee_id: 'emp-1005', x_percent: 80, y_percent: 72 },
+    { id: 'pos-14-6', line_id: 'line-14', code: 'POS06', station_name: 'Empaque Final', employee_id: 'emp-1006', x_percent: 92, y_percent: 72 },
+
+    // Linea 15 (SMT)
+    { id: 'pos-15-1', line_id: 'line-15', code: 'POS01', station_name: 'Impresora Solder', employee_id: 'emp-1007', x_percent: 15, y_percent: 70 },
+    { id: 'pos-15-2', line_id: 'line-15', code: 'POS02', station_name: 'SMT Picker', employee_id: 'emp-1008', x_percent: 40, y_percent: 70 },
+    { id: 'pos-15-3', line_id: 'line-15', code: 'POS03', station_name: 'Horno Solder', employee_id: 'emp-1009', x_percent: 65, y_percent: 70 },
+    { id: 'pos-15-4', line_id: 'line-15', code: 'POS04', station_name: 'Inspección Final', employee_id: 'emp-1010', x_percent: 85, y_percent: 70 },
+
+    // Linea 01 (Ensamble)
+    { id: 'pos-1-1', line_id: 'line-1', code: 'POS01', station_name: 'Inserción THT 1', employee_id: 'emp-1011', x_percent: 12, y_percent: 50 },
+    { id: 'pos-1-2', line_id: 'line-1', code: 'POS02', station_name: 'Inserción THT 2', employee_id: 'emp-1012', x_percent: 24, y_percent: 50 },
+    { id: 'pos-1-3', line_id: 'line-1', code: 'POS03', station_name: 'Soldadura Manual 1', employee_id: 'emp-1013', x_percent: 36, y_percent: 50 },
+    { id: 'pos-1-4', line_id: 'line-1', code: 'POS04', station_name: 'Soldadura Manual 2', employee_id: 'emp-1014', x_percent: 48, y_percent: 50 },
+    { id: 'pos-1-5', line_id: 'line-1', code: 'POS05', station_name: 'Ensamble Mecánico', employee_id: 'emp-1015', x_percent: 60, y_percent: 50 },
+    { id: 'pos-1-6', line_id: 'line-1', code: 'POS06', station_name: 'Prueba Eléctrica', employee_id: 'emp-1016', x_percent: 72, y_percent: 50 },
+    { id: 'pos-1-7', line_id: 'line-1', code: 'POS07', station_name: 'Empaque Inicial', employee_id: 'emp-1017', x_percent: 84, y_percent: 50 },
+    { id: 'pos-1-8', line_id: 'line-1', code: 'POS08', station_name: 'Auditoría Calidad', employee_id: 'emp-1018', x_percent: 94, y_percent: 50 }
+  ];
+
   return {
     areas,
     turnos,
     lineas,
     empleados,
     empleados_linea,
+    posiciones,
     escaneos,
     tiempos_muertos,
     coberturas,
@@ -750,6 +780,14 @@ class MockSupabaseQuery {
         result = result.map(log => ({
           ...log,
           linea: lineas.find((l: any) => l.id === log.line_id)
+        }));
+      } else if (this.tableName === 'posiciones') {
+        const lineas = loadTable('lineas');
+        const empleados = loadTable('empleados');
+        result = result.map(pos => ({
+          ...pos,
+          linea: lineas.find((l: any) => l.id === pos.line_id),
+          empleado: empleados.find((e: any) => e.id === pos.employee_id)
         }));
       }
 

@@ -34,8 +34,21 @@ CREATE TABLE IF NOT EXISTS lineas (
     shift3_start TIME NOT NULL DEFAULT '22:00:00',
     shift3_target INTEGER NOT NULL DEFAULT 0,
     status VARCHAR(50) DEFAULT 'FALTA PERSONAL',
+    layout_url TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(area_id, name)
+);
+
+-- 3b. POSICIONES (Workstations coordinates layout mapping)
+CREATE TABLE IF NOT EXISTS posiciones (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    line_id UUID REFERENCES lineas(id) ON DELETE CASCADE NOT NULL,
+    code VARCHAR(50) NOT NULL, -- Ej. POS01
+    station_name VARCHAR(100) NOT NULL, -- Ej. SIPLACE 01
+    employee_id UUID REFERENCES empleados(id) ON DELETE SET NULL,
+    x_percent NUMERIC(5,2) NOT NULL DEFAULT 50.0,
+    y_percent NUMERIC(5,2) NOT NULL DEFAULT 50.0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 4. EMPLEADOS (Employees Catalog)
