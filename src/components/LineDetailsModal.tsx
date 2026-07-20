@@ -410,12 +410,20 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
     )
   );
 
+  let shiftColorEmoji = '🟢';
+  if (activeShiftName === 'Turno 2') {
+    shiftColorEmoji = '🟡';
+  } else if (activeShiftName === 'Turno 3') {
+    shiftColorEmoji = '🔵';
+  }
+
   console.log('[DEBUG MONITOR KPIS]:', {
     lineId: line.id,
     posicionesRequeridas: target,
     escaneosActivos: scannedCount,
     coberturaCalculada: `${coveragePct}%`,
     estadoCalculado: statusBadgeText,
+    activeShiftName,
     distinctScannedEmployees
   });
 
@@ -431,72 +439,127 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[#F5F7FA] text-slate-800 overflow-hidden font-sans select-none">
       
-      {/* 1. CORPORATE HEADER (#005486) */}
-      <header className="h-16 shrink-0 bg-[#005486] border-b border-[#00426a] px-6 flex items-center justify-between z-20 shadow-md text-white">
+      {/* 1. INDUSTRIAL MES / ANDON DOMINANT HEADER (#005486) */}
+      <header className="h-28 shrink-0 bg-[#005486] border-b-2 border-[#003c61] px-6 lg:px-8 flex items-center justify-between z-20 shadow-lg text-white gap-4 flex-wrap lg:flex-nowrap">
         
-        {/* Left: Back Button + Line Title */}
-        <div className="flex items-center space-x-4">
+        {/* Left: Back Button & Line Info */}
+        <div className="flex items-center space-x-4 shrink-0">
           <button 
             onClick={handleClose}
-            className="p-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer border border-white/20"
+            className="p-3 rounded-2xl bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer border border-white/20 shadow-sm"
             title="Volver al Dashboard"
           >
-            <ArrowLeft className="w-5 h-5" />
+            <ArrowLeft className="w-6 h-6" />
           </button>
 
           <div>
-            <div className="flex items-center gap-2.5">
-              <span className="w-3 h-3 rounded-full animate-pulse" style={{ backgroundColor: statusColor }} />
-              <h1 className="text-xl font-black tracking-wider uppercase text-white font-mono">{line.name}</h1>
-              <span className="text-xs px-2.5 py-0.5 rounded-md bg-white/15 border border-white/20 text-white font-mono font-bold uppercase">
+            <div className="flex items-center gap-3">
+              <span className="w-3.5 h-3.5 rounded-full animate-pulse shadow-md" style={{ backgroundColor: statusColor }} />
+              <h1 className="text-2xl font-black tracking-wider uppercase text-white font-mono">{line.name}</h1>
+              <span className="text-xs px-3 py-1 rounded-lg bg-white/15 border border-white/20 text-white font-mono font-black uppercase">
                 {line.area?.name || 'SMT'}
               </span>
             </div>
-            <span className="text-xs text-white/80 font-semibold block mt-0.5">
+            <span className="text-xs text-white/80 font-bold block mt-1">
               {line.process || 'Línea de Ensamble y Producción'}
             </span>
           </div>
         </div>
 
-        {/* Center: Industrial Digital Clock & Active Shift */}
-        <div className="flex items-center gap-6 bg-black/15 border border-white/10 px-5 py-2 rounded-2xl shadow-inner text-white">
-          <div className="text-center">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-white/70 block">Turno Activo</span>
-            <span className="text-xs font-black font-mono text-white uppercase">{activeShiftName}</span>
+        {/* Center: Dominant Clock (48px) & Active Shift Badge */}
+        <div className="flex items-center gap-6 bg-black/25 border border-white/15 px-6 py-2 rounded-2xl shadow-inner text-white">
+          
+          {/* Active Shift & Target Template */}
+          <div className="flex flex-col justify-center">
+            <span className="text-[10px] font-black uppercase tracking-widest text-emerald-300 block font-mono">
+              TURNO ACTIVO
+            </span>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <span className="text-xl font-black font-mono text-white uppercase flex items-center gap-1.5">
+                <span>{shiftColorEmoji}</span>
+                <span>{activeShiftName}</span>
+              </span>
+            </div>
+            <span className="text-xs font-bold text-white/90 font-mono mt-0.5">
+              Plantilla: <strong className="text-emerald-300 font-mono font-black">{target} op</strong>
+            </span>
           </div>
 
-          <div className="h-6 w-px bg-white/20" />
+          <div className="h-10 w-px bg-white/20" />
 
-          {/* Digital Clock */}
-          <div className="flex items-center gap-2">
-            <Clock className="w-4 h-4 text-emerald-300" />
-            <span className="text-xl font-black font-mono tracking-widest text-white">{currentTimeStr}</span>
+          {/* Dominant Clock (48px) */}
+          <div className="flex flex-col items-center justify-center">
+            <div className="flex items-center gap-2">
+              <Clock className="w-6 h-6 text-emerald-400 animate-pulse" />
+              <span className="text-3xl lg:text-4xl xl:text-5xl font-black font-mono tracking-widest text-white leading-none">
+                {currentTimeStr}
+              </span>
+            </div>
+            <span className="text-[11px] font-bold text-white/70 block mt-1 tracking-wide">
+              {currentDateStr}
+            </span>
           </div>
 
-          <div className="h-6 w-px bg-white/20 hidden md:block" />
-
-          <div className="text-right hidden md:block">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-white/70 block">Fecha</span>
-            <span className="text-xs font-bold text-white">{currentDateStr}</span>
-          </div>
         </div>
 
-        {/* Right: Actions */}
-        <div className="flex items-center space-x-3">
-          {isCoverageActive && (
-            <div className="flex items-center gap-1.5 bg-blue-500/20 border border-blue-200/40 text-white px-3 py-1.5 rounded-xl text-xs font-bold animate-pulse">
-              <Utensils className="w-4 h-4 text-white" />
-              <span>Cobertura de Comedor</span>
+        {/* Right: Live MES / Andon Executive KPIs (Escaneados, Cobertura, Faltantes, Estado) */}
+        <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-4 bg-white/10 border border-white/20 px-4 py-2 rounded-2xl shadow-sm font-mono">
+            
+            {/* Escaneados / Target */}
+            <div className="text-center">
+              <span className="text-[9px] font-black uppercase tracking-wider text-white/70 block">Escaneados</span>
+              <span className="text-lg font-black text-white">
+                {scannedCount} / {target}
+              </span>
             </div>
-          )}
 
-          <button
-            onClick={toggleFullscreen}
-            className="p-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer border border-white/20"
-            title="Pantalla Completa"
-          >
-            {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
-          </button>
+            <div className="h-7 w-px bg-white/20" />
+
+            {/* Cobertura % */}
+            <div className="text-center">
+              <span className="text-[9px] font-black uppercase tracking-wider text-white/70 block">Cobertura</span>
+              <span className="text-lg font-black" style={{ color: statusColor }}>
+                {coveragePct}%
+              </span>
+            </div>
+
+            <div className="h-7 w-px bg-white/20" />
+
+            {/* Faltantes */}
+            <div className="text-center">
+              <span className="text-[9px] font-black uppercase tracking-wider text-white/70 block">Faltantes</span>
+              <span className="text-lg font-black text-red-300">
+                {missingCount}
+              </span>
+            </div>
+
+          </div>
+
+          {/* Status Badge & Fullscreen */}
+          <div className="flex items-center gap-2">
+            {isCoverageActive && (
+              <div className="hidden xl:flex items-center gap-1 bg-blue-500/20 border border-blue-200/40 text-white px-2.5 py-1 rounded-xl text-[10px] font-bold animate-pulse">
+                <Utensils className="w-3.5 h-3.5 text-white" />
+                <span>Comedor</span>
+              </div>
+            )}
+
+            <span 
+              className="px-3 py-2 rounded-xl text-xs font-black uppercase font-mono tracking-wider shadow-sm border text-center max-w-[160px]"
+              style={{ backgroundColor: `${statusColor}25`, color: '#FFFFFF', borderColor: `${statusColor}60` }}
+            >
+              {statusBadgeText}
+            </span>
+
+            <button
+              onClick={toggleFullscreen}
+              className="p-3 rounded-2xl bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer border border-white/20"
+              title="Pantalla Completa"
+            >
+              {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
+            </button>
+          </div>
         </div>
       </header>
 
