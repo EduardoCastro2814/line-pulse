@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { supabase, getActiveStaffingTarget, DEFAULT_SMT_LAYOUT } from '../lib/supabaseClient';
+import { supabase, getActiveStaffingTarget, DEFAULT_SMT_LAYOUT, mapScanFromSupabase } from '../lib/supabaseClient';
 import { 
   Users, AlertTriangle, Clock, Percent, Search, Settings, ExternalLink, 
   BarChart2, LineChart as LineChartIcon, PieChart as PieChartIcon, Layers, 
@@ -142,7 +142,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
       const verifiedAreas = await ensureAreasExist(areasData || []);
 
       setLines(linesData || []);
-      setScans(scansData || []);
+      setScans((scansData || []).map(mapScanFromSupabase));
       setDowntimes(dtData || []);
       setAreas(verifiedAreas);
       setCoverages(covData || []);

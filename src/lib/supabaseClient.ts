@@ -1127,3 +1127,69 @@ if (isMock && typeof window !== 'undefined') {
     recalculateLineState(assoc.line_id);
   }, 12000);
 }
+
+// ============================================================
+// DATA MAPPER AND PRE-INSERT VALIDATIONS FOR SUPABASE ESCANEOS
+// ============================================================
+
+export interface ScanDataPayload {
+  line_id: string;
+  employee_number: string;
+  event_type?: string;
+  was_successful?: boolean;
+}
+
+export interface SupabaseEscaneoRecord {
+  badge_id: string;
+  employee_name: string;
+  line_id: string;
+  event_time: string;
+  event_type: string;
+  was_successful: boolean;
+}
+
+export function validateAndMapScanInsert(payload: ScanDataPayload): {
+  isValid: boolean;
+  error?: string;
+  mappedRecord?: SupabaseEscaneoRecord;
+} {
+  console.log('[SUPABASE INSERT PRE-VALIDATION]: Validando payload...', payload);
+
+  if (!payload.line_id || !payload.line_id.trim()) {
+    const errorMsg = 'Campo obligatorio faltante: line_id es requerido';
+    console.error('[SUPABASE INSERT ERROR]:', errorMsg, payload);
+    return { isValid: false, error: errorMsg };
+  }
+
+  if (!payload.employee_number || !payload.employee_number.trim()) {
+    const errorMsg = 'Campo obligatorio faltante: número de empleado (badge_id) es requerido';
+    console.error('[SUPABASE INSERT ERROR]:', errorMsg, payload);
+    return { isValid: false, error: errorMsg };
+  }
+
+  const cleanBadgeId = payload.employee_number.trim();
+  const cleanEventType = (payload.event_type || 'TURN_START').trim();
+
+  // ONLY send columns that physically exist in Supabase 'escaneos' table schema:
+  // id, badge_id, employee_name, line_id, event_time, event_type, was_successful
+  const mappedRecord: SupabaseEscaneoRecord = {
+    badge_id: cleanBadgeId,
+    employee_name: `Empleado #${cleanBadgeId}`,
+    line_id: payload.line_id.trim(),
+    event_time: new Date().toISOString(),
+    event_type: cleanEventType,
+    was_successful: payload.was_successful ?? true
+  };
+
+  console.log('[SUPABASE INSERT PAYLOAD VERIFICADO]: Enviando a Supabase escaneos ->', mappedRecord);
+  return { isValid: true, mappedRecord };
+}
+
+export function mapScanFromSupabase(row: any) {
+  if (!row) return row;
+  return {
+    ...row,
+    employee_number: row.badge_id || row.employee_number || 'N/A',
+    scan_time: row.event_time || row.created_at || row.scan_time,
+  };
+}

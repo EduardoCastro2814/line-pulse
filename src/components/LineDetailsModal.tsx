@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { supabase, getActiveStaffingTarget, DEFAULT_SMT_LAYOUT } from '../lib/supabaseClient';
+import { supabase, getActiveStaffingTarget, DEFAULT_SMT_LAYOUT, validateAndMapScanInsert, mapScanFromSupabase } from '../lib/supabaseClient';
 import { Clock, QrCode, Maximize, Minimize, Utensils, CheckCircle2, ArrowLeft } from 'lucide-react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 
@@ -135,9 +135,9 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
       const { data: lineData } = await supabase.from('lineas').select('*, area:areas(*)').eq('id', lineId);
       if (lineData && lineData.length > 0) setLine(lineData[0]);
 
-      // Load ALL scans
+      // Load ALL scans mapped consistently
       const { data: escData } = await supabase.from('escaneos').select('*').eq('line_id', lineId).order('created_at', { ascending: true });
-      setEscaneos(escData || []);
+      setEscaneos((escData || []).map(mapScanFromSupabase));
 
       // Load positions mapping (try 'posiciones' then fallback to 'line_positions')
       let posRes = await supabase.from('posiciones').select('*, empleado:empleados(*)').eq('line_id', lineId).order('code', { ascending: true });
@@ -190,27 +190,46 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
     }
   }, [isOpen, lineId]);
 
-  // Execute Direct USB Scan Processing with Instant UI Update
+  // Execute Direct USB Scan Processing with Pre-Validation and Exact Column Mapping
   const processDirectScan = async (empNum: string) => {
     if (!lineId || !empNum.trim()) return;
     const cleanNum = empNum.trim();
 
-    const { target, isCoverageActive, activeShiftName } = getActiveStaffingTarget(lineId);
+    const { target, isCoverageActive } = getActiveStaffingTarget(lineId);
     const eventType = isCoverageActive ? 'MEAL_COVERAGE' : 'TURN_START';
+
+    // 1. Pre-validation and strict payload mapping (avoids hardcoded unrecognized columns)
+    const validation = validateAndMapScanInsert({
+      line_id: lineId,
+      employee_number: cleanNum,
+      event_type: eventType,
+      was_successful: true
+    });
+
+    if (!validation.isValid || !validation.mappedRecord) {
+      console.error('[SCAN INSERT ABORTADO POR VALIDACIÓN]:', validation.error);
+      setScanFeedback({
+        status: 'error',
+        message: `❌ Error: ${validation.error}`
+      });
+      return;
+    }
+
+    const { mappedRecord } = validation;
+    console.log('[SUPABASE INSERT ESCANEO Payload]:', mappedRecord);
 
     const newScanRecord = {
       id: `temp-${Date.now()}`,
       line_id: lineId,
       employee_number: cleanNum,
       badge_id: cleanNum,
-      scan_time: new Date().toISOString(),
-      event_time: new Date().toISOString(),
+      scan_time: mappedRecord.event_time,
+      event_time: mappedRecord.event_time,
       event_type: eventType,
-      shift: activeShiftName || 'Turno 1',
       was_successful: true
     };
 
-    // 1. Immediately update local state so UI turns GREEN instantly!
+    // 2. Immediately update local state so UI turns GREEN instantly!
     setEscaneos(prev => [...prev, newScanRecord]);
 
     setScanFeedback({
@@ -220,44 +239,46 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
 
     setManualScanInput('');
 
-    // 2. Persist to Supabase & Update Line Status
+    // 3. Persist mapped record to Supabase
     try {
-      await supabase.from('escaneos').insert({
-        line_id: lineId,
-        employee_number: cleanNum,
-        badge_id: cleanNum,
-        scan_time: newScanRecord.scan_time,
-        event_time: newScanRecord.event_time,
-        event_type: eventType,
-        shift: activeShiftName || 'Turno 1',
-        was_successful: true
-      });
+      const { error: insertError } = await supabase.from('escaneos').insert(mappedRecord);
 
-      const currentScannedList = [...escaneos, newScanRecord];
-      const updatedDistinctScanned = new Set(
-        currentScannedList.map(s => s.employee_number || s.badge_id).filter(Boolean)
-      ).size;
+      if (insertError) {
+        console.error('[SUPABASE INSERT ERROR DETALLADO]:', insertError);
+        setScanFeedback({
+          status: 'error',
+          message: `❌ Error Supabase: ${insertError.message || insertError.details || 'Error de inserción'}`
+        });
+      } else {
+        console.log('[SUPABASE INSERT EXITOSO]: Escaneo registrado correctamente en base de datos');
 
-      const newPct = target > 0 ? Math.round((updatedDistinctScanned / target) * 100) : 0;
-      let newStatus = 'FALTA PERSONAL';
-      if (isCoverageActive) {
-        newStatus = 'COBERTURA DE COMEDOR';
-      } else if (newPct >= 100) {
-        newStatus = 'PLANTILLA COMPLETA';
-      } else if (newPct >= 80) {
-        newStatus = 'INTEGRANDO PERSONAL';
+        // Update line status in Supabase
+        const currentScannedList = [...escaneos, newScanRecord];
+        const updatedDistinctScanned = new Set(
+          currentScannedList.map(s => s.employee_number || s.badge_id).filter(Boolean)
+        ).size;
+
+        const newPct = target > 0 ? Math.round((updatedDistinctScanned / target) * 100) : 0;
+        let newStatus = 'FALTA PERSONAL';
+        if (isCoverageActive) {
+          newStatus = 'COBERTURA DE COMEDOR';
+        } else if (newPct >= 100) {
+          newStatus = 'PLANTILLA COMPLETA';
+        } else if (newPct >= 80) {
+          newStatus = 'INTEGRANDO PERSONAL';
+        }
+
+        await supabase.from('lineas').update({ status: newStatus }).eq('id', lineId);
       }
-
-      await supabase.from('lineas').update({ status: newStatus }).eq('id', lineId);
     } catch (err: any) {
-      console.warn('Error saving scan to Supabase:', err);
+      console.error('[SUPABASE CATCH ERROR]:', err);
     }
 
     loadData();
 
     setTimeout(() => {
       setScanFeedback({ status: null, message: '' });
-    }, 3000);
+    }, 3500);
   };
 
   // Global USB Barcode Reader Keyboard Listener (Emulates USB Keyboard Input ending with Enter)

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { supabase, getActiveStaffingTarget } from '../lib/supabaseClient';
+import { supabase, getActiveStaffingTarget, mapScanFromSupabase } from '../lib/supabaseClient';
 import { Clock, Maximize, Minimize, LayoutDashboard, Utensils } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
@@ -50,7 +50,7 @@ export const TvDashboard: React.FC = () => {
       const { data: dtData } = await supabase.from('tiempos_muertos').select('*');
 
       setLines(linesData || []);
-      setScans(scansData || []);
+      setScans((scansData || []).map(mapScanFromSupabase));
       setDowntimes(dtData || []);
     } catch (err) {
       console.warn('Handling empty database query in TvDashboard:', err);
