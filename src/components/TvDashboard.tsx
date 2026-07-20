@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase, getActiveStaffingTarget } from '../lib/supabaseClient';
-import { Clock, Maximize, Minimize, BarChart3 } from 'lucide-react';
+import { Clock, Maximize, Minimize, LayoutDashboard, Utensils } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 export const TvDashboard: React.FC = () => {
@@ -8,9 +8,18 @@ export const TvDashboard: React.FC = () => {
   const [lines, setLines] = useState<any[]>([]);
   const [scans, setScans] = useState<any[]>([]);
   const [downtimes, setDowntimes] = useState<any[]>([]);
+  const [currentClock, setCurrentClock] = useState('');
   
   // Fullscreen state
   const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const now = new Date();
+      setCurrentClock(now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -47,7 +56,6 @@ export const TvDashboard: React.FC = () => {
   useEffect(() => {
     loadData();
 
-    // Live subscription
     const channel = supabase.channel('tv-dashboard-db-changes')
       .on('postgres_changes', { event: '*', schema: 'public' }, () => {
         loadData();
@@ -99,181 +107,159 @@ export const TvDashboard: React.FC = () => {
     }
   });
 
-  const totalLines = lines.length || 1;
-  const pctComplete = Math.round((countComplete / totalLines) * 100);
-  const pctInProgress = Math.round((countInProgress / totalLines) * 100);
-  const pctCritical = Math.round((countCritical / totalLines) * 100);
-
-  // Dynamic Row / Col Grid configurations
-  const lineCount = lines.length;
-  let gridCols = 4;
-  if (lineCount <= 4) gridCols = 2;
-  else if (lineCount <= 9) gridCols = 3;
-  else if (lineCount <= 12) gridCols = 4;
-  else if (lineCount <= 16) gridCols = 4;
-  else gridCols = 5;
-
-  const rowsCount = Math.ceil(lineCount / gridCols) || 1;
-  
-  const gridStyle = {
-    display: 'grid',
-    gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`,
-    gridTemplateRows: `repeat(${rowsCount}, minmax(0, 1fr))`,
-    gap: '12px',
-    height: '100%',
-    width: '100%'
-  };
-
   return (
-    <div className="w-full h-full bg-[#050B18] text-slate-100 p-4 flex flex-col justify-between overflow-hidden select-none">
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#F5F7FA] text-slate-800 font-sans select-none p-4 space-y-4">
       
-      {/* TV Header Banner */}
-      <div className="flex justify-between items-center border-b border-slate-900 pb-2 mb-3 shrink-0">
-        <div>
-          <span className="text-[10px] tracking-widest text-emerald-450 font-bold font-mono uppercase block mb-0.5 animate-pulse">
-            [ ESTADO EN TIEMPO REAL - PISO DE PRODUCCIÓN ]
-          </span>
-          <h1 className="text-xl font-black tracking-widest font-sans text-slate-100 flex items-center gap-2">
-            LINEPULSE <span className="text-[#F59E0B] text-sm font-bold font-mono">MES DISPLAY</span>
-          </h1>
-        </div>
-        
+      {/* 1. TOP CORPORATE TV HEADER (#005486) */}
+      <header className="h-16 shrink-0 bg-[#005486] border border-[#00426a] rounded-2xl flex items-center justify-between px-6 shadow-md text-white">
         <div className="flex items-center space-x-3.5">
-          {/* Back to Executive Dashboard */}
+          <div className="w-9 h-9 bg-white/15 border border-white/20 rounded-xl flex items-center justify-center shadow-inner">
+            <span className="text-white font-black text-xl font-mono">LP</span>
+          </div>
+          <div>
+            <h1 className="text-xl font-black tracking-widest uppercase text-white font-sans">MONITOR DE PLANTA ANDON</h1>
+            <span className="block text-[9px] text-white/70 font-bold uppercase tracking-wider">LinePulse Corporate Floor Display</span>
+          </div>
+        </div>
+
+        {/* Live Status Indicators */}
+        <div className="flex items-center space-x-6 text-xs font-mono font-bold">
+          <div className="flex items-center space-x-2 bg-white/10 px-3 py-1.5 rounded-xl border border-white/20">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+            <span className="text-white">COMPLETAS: {countComplete}</span>
+          </div>
+
+          <div className="flex items-center space-x-2 bg-white/10 px-3 py-1.5 rounded-xl border border-white/20">
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
+            <span className="text-white">ATENCIÓN: {countInProgress}</span>
+          </div>
+
+          <div className="flex items-center space-x-2 bg-white/10 px-3 py-1.5 rounded-xl border border-white/20">
+            <span className="w-2.5 h-2.5 rounded-full bg-red-400"></span>
+            <span className="text-white">FALTANTES: {countCritical}</span>
+          </div>
+        </div>
+
+        {/* Navigation & Controls */}
+        <div className="flex items-center space-x-3">
           <button
             onClick={() => navigate('/dashboard')}
-            className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 hover:text-white px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all shadow-sm cursor-pointer"
+            className="flex items-center gap-1.5 bg-white/15 hover:bg-white/25 text-white border border-white/20 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer"
           >
-            <BarChart3 className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Vista Ejecutivo</span>
+            <LayoutDashboard className="w-4 h-4" />
+            <span>Dashboard</span>
           </button>
 
-          {/* Fullscreen toggle */}
+          <div className="flex items-center space-x-1.5 text-xs text-white font-mono font-bold bg-black/15 border border-white/10 px-3 py-1.5 rounded-xl">
+            <Clock className="w-4 h-4 text-emerald-300" />
+            <span>{currentClock || '--:--:--'}</span>
+          </div>
+
           <button
             onClick={toggleFullscreen}
-            className="flex items-center gap-1 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-350 hover:text-white px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all shadow-sm cursor-pointer"
+            className="p-2 bg-white/15 hover:bg-white/25 text-white border border-white/20 rounded-xl transition-all shadow-sm cursor-pointer"
+            title="Pantalla Completa"
           >
-            {isFullscreen ? <Minimize className="w-3.5 h-3.5 text-amber-400" /> : <Maximize className="w-3.5 h-3.5 text-emerald-450" />}
-            <span>{isFullscreen ? 'Salir Fullscreen' : 'Pantalla Completa'}</span>
+            {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
           </button>
-          
-          <div className="text-right">
-            <span className="text-xs font-bold text-slate-400 block tracking-wider font-mono">Turno Activo: Primero</span>
-            <span className="text-[10px] text-slate-500 font-mono">{new Date().toLocaleDateString('es-MX')}</span>
-          </div>
         </div>
-      </div>
+      </header>
 
-      {/* Executive TV Summary Bar (High visibility counters) */}
-      <div className="grid grid-cols-3 gap-3 mb-3 bg-[#0B132B] border border-slate-800 p-2 rounded-xl text-center shrink-0">
-        <div className="flex items-center justify-center space-x-2">
-          <span className="w-2.5 h-2.5 rounded-full bg-[#22C55E] shadow-[0_0_8px_#22C55E] animate-pulse"></span>
-          <div>
-            <span className="text-[9px] text-slate-400 block uppercase font-bold">Plantillas Completas</span>
-            <span className="text-base font-black font-mono text-[#22C55E]">{countComplete} <span className="text-xs text-slate-500">({pctComplete}%)</span></span>
-          </div>
-        </div>
-
-        <div className="flex items-center justify-center space-x-2 border-l border-slate-900">
-          <span className="w-2.5 h-2.5 rounded-full bg-[#F59E0B] shadow-[0_0_8px_#F59E0B] animate-pulse"></span>
-          <div>
-            <span className="text-[9px] text-slate-400 block uppercase font-bold">Completándose (80-99%)</span>
-            <span className="text-base font-black font-mono text-[#F59E0B]">{countInProgress} <span className="text-xs text-slate-500">({pctInProgress}%)</span></span>
-          </div>
-        </div>
-
-        <div className="flex items-center justify-center space-x-2 border-l border-slate-900">
-          <span className="w-2.5 h-2.5 rounded-full bg-[#EF4444] shadow-[0_0_8px_#EF4444] animate-pulse"></span>
-          <div>
-            <span className="text-[9px] text-slate-400 block uppercase font-bold">Plantilla Crítica (&lt;80%)</span>
-            <span className="text-base font-black font-mono text-[#EF4444]">{countCritical} <span className="text-xs text-slate-500">({pctCritical}%)</span></span>
-          </div>
-        </div>
-      </div>
-
-      {/* Main Large Visual Grid (No-scroll stretching) */}
-      <div className="flex-1 min-h-0 w-full mb-3">
-        <div style={gridStyle}>
+      {/* 2. CORPORATE LIGHT TV GRID OF LINES */}
+      <main className="flex-grow min-h-0 w-full overflow-hidden">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 h-full w-full overflow-y-auto pr-1">
           {lines.map((line: any) => {
-            const { target, isCoverageActive } = getActiveStaffingTarget(line.id);
+            const { target, isCoverageActive, activeShiftName } = getActiveStaffingTarget(line.id);
             const present = getPresentOperatorsCount(line.id);
             const pct = target > 0 ? Math.round((present / target) * 100) : 0;
-            const activeDowntime = getActiveDowntimeMinutes(line.id);
+            const dtMin = getActiveDowntimeMinutes(line.id);
 
-            let ringClass = 'glow-red';
-            let glowClass = 'bg-[#EF4444] shadow-[0_0_12px_#EF4444]';
-            let textStatus = '🔴 DENEGADO / METAS';
-            let pctColor = 'text-[#EF4444]';
+            // Color Rules:
+            // 🟢 VERDE (#22C55E): 100%
+            // 🟡 AMARILLO (#EAB308): 80% - 99%
+            // 🔴 ROJO (#EF4444): < 80%
+            // 🔵 AZUL (#3B82F6): Cobertura Comedor
+            let statusColor = '#EF4444';
+            let statusEmoji = '🔴';
 
-            if (isCoverageActive) {
-              ringClass = 'glow-blue';
-              glowClass = 'bg-[#3B82F6] shadow-[0_0_12px_#3B82F6]';
-              textStatus = '🔵 COMEDOR ACTIVO';
-              pctColor = 'text-[#3B82F6]';
+            if (isCoverageActive && present >= target) {
+              statusColor = '#3B82F6';
+              statusEmoji = '🔵';
             } else if (pct >= 100) {
-              ringClass = 'glow-green';
-              glowClass = 'bg-[#22C55E] shadow-[0_0_12px_#22C55E]';
-              textStatus = '🟢 OPERATIVA COMPLETA';
-              pctColor = 'text-[#22C55E]';
+              statusColor = '#22C55E';
+              statusEmoji = '🟢';
             } else if (pct >= 80) {
-              ringClass = 'glow-yellow';
-              glowClass = 'bg-[#F59E0B] shadow-[0_0_12px_#F59E0B]';
-              textStatus = '🟡 COBERTURA MODERADA';
-              pctColor = 'text-[#F59E0B]';
+              statusColor = '#EAB308';
+              statusEmoji = '🟡';
             }
 
             return (
-              <div 
-                key={line.id} 
+              <div
+                key={line.id}
                 onClick={() => navigate(`/linea/${line.id}?tv=true`)}
-                className={`bg-[#0B132B] border-2 rounded-xl p-4 flex items-center justify-between transition-all duration-500 relative overflow-hidden cursor-pointer hover:border-slate-700 ${ringClass}`}
+                style={{ borderColor: `${statusColor}` }}
+                className="bg-white border-2 hover:shadow-md p-4 rounded-2xl transition-all flex flex-col justify-between cursor-pointer select-none relative overflow-hidden"
               >
-                {/* Information blocks */}
-                <div className="flex flex-col justify-between h-full min-w-0 pr-2 z-10">
-                  <div className="min-w-0">
-                    <h3 className="text-[clamp(1rem,1.5vh,1.25rem)] font-extrabold tracking-wide text-slate-100 leading-none truncate">{line.name}</h3>
-                    <span className={`text-[clamp(0.65rem,0.9vh,0.75rem)] font-bold tracking-widest ${pctColor} block mt-1.5 uppercase`}>{textStatus}</span>
-                  </div>
-
-                  <div className="mt-2 shrink-0">
-                    <span className="text-[clamp(0.65rem,0.9vh,0.75rem)] text-slate-550 font-bold uppercase tracking-wider block mb-0.5">Operadores</span>
-                    <span className="text-[clamp(0.9rem,1.3vh,1.1rem)] font-black font-mono text-slate-200">
-                      {present} <span className="text-slate-500 text-xs font-normal">/ {target}</span>
+                {/* Top: Name & Shift */}
+                <div className="flex justify-between items-start">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl">{statusEmoji}</span>
+                      <span className="text-base font-black text-slate-900 uppercase tracking-wider font-mono">
+                        {line.name}
+                      </span>
+                    </div>
+                    <span className="text-[11px] text-slate-500 font-semibold block mt-0.5">
+                      {activeShiftName}
                     </span>
                   </div>
+
+                  {isCoverageActive && (
+                    <span className="px-2 py-0.5 bg-blue-50 border border-blue-200 text-blue-700 text-[10px] font-bold rounded-md flex items-center gap-1">
+                      <Utensils className="w-3 h-3" />
+                      Comedor
+                    </span>
+                  )}
                 </div>
 
-                {/* Right: Coverage + LED Status Indicator */}
-                <div className="flex items-center gap-3 shrink-0 z-10">
-                  {/* Downtime Alert indicator */}
-                  {pct < 100 && activeDowntime > 0 && (
-                    <div className="flex items-center gap-0.5 bg-red-950/60 border border-red-500/30 px-1.5 py-0.5 rounded-lg text-[10px] text-red-400 font-mono font-bold animate-pulse">
-                      <Clock className="w-3.5 h-3.5 text-red-400 shrink-0" />
-                      <span>{activeDowntime}m</span>
-                    </div>
-                  )}
+                {/* Center: Large KPI Compliance Ring / Text */}
+                <div className="my-3 flex items-baseline justify-between">
+                  <div className="flex items-baseline gap-1 font-mono">
+                    <span className="text-3xl font-black text-slate-900">{present}</span>
+                    <span className="text-sm text-slate-400 font-semibold">/ {target} op</span>
+                  </div>
 
-                  {/* Large coverage percentage */}
-                  <span className={`text-[clamp(1.7rem,2.8vh,2.3rem)] font-black font-mono leading-none tracking-tighter ${pctColor}`}>
+                  <span className="text-3xl font-black font-mono" style={{ color: statusColor }}>
                     {pct}%
                   </span>
+                </div>
 
-                  {/* Large visual status indicator LED */}
-                  <span className={`w-3.5 h-3.5 rounded-full ${glowClass} shrink-0 ml-1`} />
+                {/* Bottom Progress Bar & Downtime */}
+                <div className="space-y-1.5">
+                  <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
+                    <div
+                      className="h-full transition-all duration-500 rounded-full"
+                      style={{ width: `${Math.min(100, pct)}%`, backgroundColor: statusColor }}
+                    />
+                  </div>
+
+                  <div className="flex justify-between items-center text-[11px] font-mono text-slate-500 pt-1">
+                    <span>Tiempo Muerto:</span>
+                    {dtMin > 0 ? (
+                      <span className="text-amber-600 font-bold bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                        {dtMin} min
+                      </span>
+                    ) : (
+                      <span>0 min</span>
+                    )}
+                  </div>
                 </div>
               </div>
             );
           })}
         </div>
-      </div>
-
-      {/* Floor display tickers */}
-      <div className="border-t border-slate-900 pt-2 flex justify-between text-[10px] text-slate-500 font-mono shrink-0">
-        <span>SISTEMA DE PLANTA ACTIVO • LECTOR USB HABILITADO</span>
-        <span>LINEPULSE TV-DASHBOARD v3.0.0</span>
-      </div>
+      </main>
 
     </div>
   );
 };
-
