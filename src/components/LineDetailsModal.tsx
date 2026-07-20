@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { supabase, getActiveStaffingTarget, DEFAULT_SMT_LAYOUT, validateAndMapScanInsert, mapScanFromSupabase } from '../lib/supabaseClient';
-import { Clock, QrCode, Maximize, Minimize, Utensils, CheckCircle2, ArrowLeft } from 'lucide-react';
+import { Clock, QrCode, Maximize, Minimize, Utensils, CheckCircle2, AlertTriangle, ArrowLeft } from 'lucide-react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 
 interface LineDetailsModalProps {
@@ -190,12 +190,56 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
     }
   }, [isOpen, lineId]);
 
-  // Execute Direct USB Scan Processing with Pre-Validation and Exact Column Mapping
+  // Execute Direct USB Scan Processing with Strict Rules (Reglas 1 - 5)
   const processDirectScan = async (empNum: string) => {
-    if (!lineId || !empNum.trim()) return;
-    const cleanNum = empNum.trim();
+    setManualScanInput('');
+    if (!lineId) return;
+
+    // REGLAS 2 & 3: Strip whitespace & ignore empty
+    const cleanNum = (empNum || '').trim();
+    if (!cleanNum) return;
+
+    // REGLA 1: Numeric Characters ONLY
+    if (!/^\d+$/.test(cleanNum)) {
+      setScanFeedback({
+        status: 'error',
+        message: 'Escaneo inválido. Solo se permiten números de empleado.'
+      });
+      setTimeout(() => setScanFeedback({ status: null, message: '' }), 3500);
+      return;
+    }
 
     const { target, isCoverageActive } = getActiveStaffingTarget(lineId);
+
+    // Current scanned list of distinct numbers for this line
+    const currentScannedList = Array.from(
+      new Set(
+        escaneos
+          .map(s => (s.employee_number || s.badge_id || '').trim())
+          .filter(Boolean)
+      )
+    );
+
+    // REGLA 4: No Duplicates in Same Shift
+    if (currentScannedList.includes(cleanNum)) {
+      setScanFeedback({
+        status: 'error',
+        message: 'Empleado ya registrado en este turno.'
+      });
+      setTimeout(() => setScanFeedback({ status: null, message: '' }), 3500);
+      return;
+    }
+
+    // REGLA 5: Do NOT exceed target capacity
+    if (currentScannedList.length >= target) {
+      setScanFeedback({
+        status: 'error',
+        message: 'Plantilla completa. No se requieren más registros.'
+      });
+      setTimeout(() => setScanFeedback({ status: null, message: '' }), 3500);
+      return;
+    }
+
     const eventType = isCoverageActive ? 'MEAL_COVERAGE' : 'TURN_START';
 
     // 1. Pre-validation and strict payload mapping (avoids hardcoded unrecognized columns)
@@ -237,8 +281,6 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
       message: `✅ Escaneo registrado: Empleado #${cleanNum}`
     });
 
-    setManualScanInput('');
-
     // 3. Persist mapped record to Supabase
     try {
       const { error: insertError } = await supabase.from('escaneos').insert(mappedRecord);
@@ -252,19 +294,19 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
       } else {
         console.log('[SUPABASE INSERT EXITOSO]: Escaneo registrado correctamente en base de datos');
 
-        // Update line status in Supabase
-        const currentScannedList = [...escaneos, newScanRecord];
-        const updatedDistinctScanned = new Set(
-          currentScannedList.map(s => s.employee_number || s.badge_id).filter(Boolean)
-        ).size;
+        // Calculate new status:
+        // 0% -> FALTA PERSONAL
+        // 1% - 99% -> INTEGRANDO PERSONAL
+        // 100% -> PLANTILLA COMPLETA
+        const updatedCount = currentScannedList.length + 1;
+        const newPct = target > 0 ? Math.round((updatedCount / target) * 100) : 0;
 
-        const newPct = target > 0 ? Math.round((updatedDistinctScanned / target) * 100) : 0;
         let newStatus = 'FALTA PERSONAL';
         if (isCoverageActive) {
           newStatus = 'COBERTURA DE COMEDOR';
         } else if (newPct >= 100) {
           newStatus = 'PLANTILLA COMPLETA';
-        } else if (newPct >= 80) {
+        } else if (newPct > 0) {
           newStatus = 'INTEGRANDO PERSONAL';
         }
 
@@ -329,15 +371,19 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
   const distinctScannedEmployees = Array.from(
     new Set(
       escaneos
-        .map(s => s.employee_number || s.badge_id)
+        .map(s => (s.employee_number || s.badge_id || '').trim())
         .filter(Boolean)
     )
   );
 
   const scannedCount = distinctScannedEmployees.length;
   const coveragePct = target > 0 ? Math.round((scannedCount / target) * 100) : 0;
+  const missingCount = Math.max(0, target - scannedCount);
 
-  // Color logic for overall line status
+  // Color logic for overall line status:
+  // 0% -> FALTA PERSONAL (Red)
+  // 1% - 99% -> INTEGRANDO PERSONAL (Yellow)
+  // 100% -> PLANTILLA COMPLETA (Green)
   let statusColor = '#EF4444'; // Red
   let statusBadgeText = 'FALTA PERSONAL';
   if (isCoverageActive) {
@@ -346,7 +392,7 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
   } else if (coveragePct >= 100) {
     statusColor = '#22C55E'; // Green
     statusBadgeText = 'PLANTILLA COMPLETA';
-  } else if (coveragePct >= 80) {
+  } else if (coveragePct > 0) {
     statusColor = '#EAB308'; // Yellow
     statusBadgeText = 'INTEGRANDO PERSONAL';
   }
@@ -535,8 +581,10 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
 
           {/* Toast Notification Banner for USB Scans */}
           {scanFeedback.message && (
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 bg-slate-900 text-white px-5 py-2.5 rounded-2xl shadow-2xl border border-slate-700 font-mono text-xs font-extrabold flex items-center gap-2 animate-in fade-in zoom-in duration-200">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+            <div className={`absolute top-4 left-1/2 -translate-x-1/2 z-40 px-5 py-2.5 rounded-2xl shadow-2xl border font-mono text-xs font-extrabold flex items-center gap-2 animate-in fade-in zoom-in duration-200 ${
+              scanFeedback.status === 'error' ? 'bg-red-900 text-white border-red-700' : 'bg-slate-900 text-white border-slate-700'
+            }`}>
+              {scanFeedback.status === 'error' ? <AlertTriangle className="w-4 h-4 text-red-400" /> : <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
               <span>{scanFeedback.message}</span>
             </div>
           )}
@@ -561,6 +609,9 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
                 style={{ backgroundColor: `${statusColor}15`, color: statusColor, border: `1px solid ${statusColor}40` }}
               >
                 {statusBadgeText}
+              </span>
+              <span className="px-2 py-0.5 rounded-md text-xs font-mono font-extrabold bg-red-50 text-red-700 border border-red-200">
+                Faltantes: {missingCount}
               </span>
             </div>
           </div>

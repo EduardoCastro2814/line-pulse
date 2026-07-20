@@ -720,7 +720,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                   } else if (pct >= 100) {
                     statusEmoji = '🟢';
                     statusColor = '#22C55E';
-                  } else if (pct >= 80) {
+                  } else if (pct > 0) {
                     statusEmoji = '🟡';
                     statusColor = '#EAB308';
                   }

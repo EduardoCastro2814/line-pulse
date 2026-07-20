@@ -98,7 +98,7 @@ export const TvDashboard: React.FC = () => {
     
     if (isCoverageActive || pct >= 100) {
       countComplete++;
-    } else if (pct >= 80) {
+    } else if (pct > 0) {
       countInProgress++;
     } else {
       countCritical++;
