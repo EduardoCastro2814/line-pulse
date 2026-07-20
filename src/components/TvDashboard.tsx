@@ -1,7 +1,54 @@
 import React, { useEffect, useState } from 'react';
-import { supabase, calculateLineMetrics, mapScanFromSupabase } from '../lib/supabaseClient';
+import { supabase, calculateLineMetrics, mapScanFromSupabase, getDonutColor } from '../lib/supabaseClient';
 import { Clock, Maximize, Minimize, LayoutDashboard } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+
+const SmallCircularGauge: React.FC<{ percentage: number; color: string; present: number; target: number }> = ({
+  percentage,
+  color,
+  present,
+  target
+}) => {
+  const size = 66;
+  const radius = (size - 10) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const strokeDashoffset = circumference - (Math.min(100, Math.max(0, percentage)) / 100) * circumference;
+
+  return (
+    <div className="relative flex items-center justify-center shrink-0">
+      <svg className="transform -rotate-90" width={size} height={size}>
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke="#E2E8F0"
+          strokeWidth="6"
+          fill="transparent"
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke={color}
+          strokeWidth="6"
+          strokeDasharray={circumference}
+          strokeDashoffset={strokeDashoffset}
+          strokeLinecap="round"
+          fill="transparent"
+          className="transition-all duration-700 ease-out"
+        />
+      </svg>
+      <div className="absolute flex flex-col items-center justify-center text-center">
+        <span className="text-xs font-black font-mono leading-none" style={{ color }}>
+          {percentage}%
+        </span>
+        <span className="text-[9px] font-mono font-extrabold text-slate-500 mt-0.5">
+          {present}/{target}
+        </span>
+      </div>
+    </div>
+  );
+};
 
 export const TvDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -46,35 +93,30 @@ export const TvDashboard: React.FC = () => {
 
   const loadData = async () => {
     try {
-      const { data: linesData } = await supabase.from('lineas').select('*').order('name', { ascending: true });
-      const { data: scansData } = await supabase.from('escaneos').select('*');
-      const { data: dtData } = await supabase.from('tiempos_muertos').select('*');
-
-      let posData: any[] = [];
-      const resPos = await supabase.from('posiciones').select('*');
-      if (resPos.data && resPos.data.length > 0) {
-        posData = resPos.data;
-      } else {
-        const resLinePos = await supabase.from('line_positions').select('*');
-        posData = resLinePos.data || [];
-      }
-
+      const { data: linesData } = await supabase.from('lineas').select('*, area:areas(*)').order('name');
       setLines(linesData || []);
-      setScans((scansData || []).map(mapScanFromSupabase));
+
+      const { data: scansData } = await supabase.from('escaneos').select('*');
+      const mappedScans = (scansData || []).map(mapScanFromSupabase);
+      setScans(mappedScans);
+
+      const { data: dtData } = await supabase.from('tiempos_muertos').select('*');
       setDowntimes(dtData || []);
-      setPosiciones(posData);
+
+      const { data: posData } = await supabase.from('posiciones').select('*');
+      setPosiciones(posData || []);
     } catch (err) {
-      console.warn('Handling empty database query in TvDashboard:', err);
+      console.error('Error loading TvDashboard data:', err);
     }
   };
 
   useEffect(() => {
     loadData();
 
-    const channel = supabase.channel('tv-dashboard-db-changes')
-      .on('postgres_changes', { event: '*', schema: 'public' }, () => {
-        loadData();
-      })
+    const channel = supabase.channel('tv-dashboard-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'escaneos' }, () => loadData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'lineas' }, () => loadData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'posiciones' }, () => loadData())
       .subscribe();
 
     return () => {
@@ -83,70 +125,34 @@ export const TvDashboard: React.FC = () => {
   }, []);
 
   const getActiveDowntimeMinutes = (lineId: string) => {
-    const activeDt = downtimes.find((dt: any) => dt.line_id === lineId && !dt.resolved);
-    if (!activeDt) return 0;
-    const elapsedMs = new Date().getTime() - new Date(activeDt.start_time).getTime();
-    return Math.max(0, Math.floor(elapsedMs / 60000));
+    const active = downtimes.find(d => d.line_id === lineId && !d.resolved);
+    if (!active) return 0;
+    const start = new Date(active.start_time).getTime();
+    const now = new Date().getTime();
+    return Math.max(1, Math.floor((now - start) / 60000));
   };
 
-  // Counts for top summary using UNIFIED calculateLineMetrics helper
-  let countComplete = 0;
-  let countInProgress = 0;
-  let countCritical = 0;
-
-  lines.forEach((line: any) => {
-    const { coveragePct, isCoverageActive } = calculateLineMetrics(line.id, posiciones, scans, []);
-    
-    if (isCoverageActive || coveragePct >= 100) {
-      countComplete++;
-    } else if (coveragePct > 0) {
-      countInProgress++;
-    } else {
-      countCritical++;
-    }
-  });
-
-  // Responsive layout scaling calculation to guarantee NO vertical scrollbar
   const lineCount = lines.length;
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#F5F7FA] text-slate-800 font-sans select-none p-4 space-y-4">
+    <div className="fixed inset-0 bg-[#F5F7FA] flex flex-col font-sans select-none overflow-hidden">
       
-      {/* 1. TOP CORPORATE TV HEADER (#005486) */}
-      <header className="h-16 shrink-0 bg-[#005486] border border-[#00426a] rounded-2xl flex items-center justify-between px-6 shadow-md text-white">
-        <div className="flex items-center space-x-3.5">
-          <div className="w-9 h-9 bg-white/15 border border-white/20 rounded-xl flex items-center justify-center shadow-inner">
-            <span className="text-white font-black text-xl font-mono">LP</span>
-          </div>
-          <div>
-            <h1 className="text-xl font-black tracking-widest uppercase text-white font-sans">MONITOR DE PLANTA ANDON</h1>
-            <span className="block text-[9px] text-white/70 font-bold uppercase tracking-wider">LinePulse Corporate Floor Display</span>
-          </div>
-        </div>
-
-        {/* Live Status Indicators */}
-        <div className="flex items-center space-x-6 text-xs font-mono font-bold">
-          <div className="flex items-center space-x-2 bg-white/10 px-3 py-1.5 rounded-xl border border-white/20">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
-            <span className="text-white">COMPLETAS: {countComplete}</span>
-          </div>
-
-          <div className="flex items-center space-x-2 bg-white/10 px-3 py-1.5 rounded-xl border border-white/20">
-            <span className="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
-            <span className="text-white">ATENCIÓN: {countInProgress}</span>
-          </div>
-
-          <div className="flex items-center space-x-2 bg-white/10 px-3 py-1.5 rounded-xl border border-white/20">
-            <span className="w-2.5 h-2.5 rounded-full bg-red-400"></span>
-            <span className="text-white">FALTANTES: {countCritical}</span>
-          </div>
-        </div>
-
-        {/* Navigation & Controls */}
+      {/* 1. TOP LIGHT HEADER BAR */}
+      <header className="h-14 bg-[#005486] text-white px-6 flex items-center justify-between border-b border-[#00426a] shrink-0 shadow-md">
         <div className="flex items-center space-x-3">
+          <div className="w-3 h-3 rounded-full bg-emerald-400 animate-pulse" />
+          <h1 className="text-base font-black tracking-wider uppercase font-mono">
+            LinePulse — Monitor Andon Operativo
+          </h1>
+          <span className="text-[10px] bg-white/15 px-2 py-0.5 rounded-full font-mono text-white/90">
+            {lineCount} líneas activas
+          </span>
+        </div>
+
+        <div className="flex items-center space-x-4">
           <button
             onClick={() => navigate('/dashboard')}
-            className="flex items-center gap-1.5 bg-white/15 hover:bg-white/25 text-white border border-white/20 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer"
+            className="flex items-center space-x-1.5 px-3 py-1.5 bg-white/15 hover:bg-white/25 text-white border border-white/20 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer"
           >
             <LayoutDashboard className="w-4 h-4" />
             <span>Dashboard</span>
@@ -167,7 +173,7 @@ export const TvDashboard: React.FC = () => {
         </div>
       </header>
 
-      {/* 2. CORPORATE LIGHT TV GRID OF LINES (FIXED SIZE CARDS & AUTO-SCALING FOR ZERO SCROLLBAR) */}
+      {/* 2. CORPORATE LIGHT TV GRID OF LINES */}
       <main className="flex-1 min-h-0 w-full overflow-hidden flex items-center justify-center p-2">
         <div className="w-full h-full flex flex-wrap gap-4 items-start justify-center overflow-hidden content-start">
           {lines.map((line: any) => {
@@ -176,13 +182,13 @@ export const TvDashboard: React.FC = () => {
               target, 
               scannedCount: present, 
               coveragePct: pct, 
-              statusColor, 
               statusBadgeText, 
               statusEmoji, 
               isCoverageActive, 
               activeShiftName 
             } = metrics;
 
+            const donutColor = getDonutColor(pct);
             const dtMin = getActiveDowntimeMinutes(line.id);
 
             // Responsive Scaling classes based on total line count to prevent scroll
@@ -197,7 +203,7 @@ export const TvDashboard: React.FC = () => {
               <div
                 key={line.id}
                 onClick={() => navigate(`/linea/${line.id}?tv=true`)}
-                style={{ borderColor: `${statusColor}` }}
+                style={{ borderColor: donutColor }}
                 className={`${cardWidthClass} bg-white border-2 hover:shadow-lg rounded-2xl transition-all flex flex-col justify-between p-4 cursor-pointer select-none relative overflow-hidden shrink-0 shadow-sm`}
               >
                 {/* Top Header: Status Emoji, Name & Status Badge */}
@@ -216,43 +222,42 @@ export const TvDashboard: React.FC = () => {
 
                   <span 
                     className="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase font-mono tracking-wide"
-                    style={{ backgroundColor: `${statusColor}15`, color: statusColor, border: `1px solid ${statusColor}40` }}
+                    style={{ backgroundColor: `${donutColor}15`, color: donutColor, border: `1px solid ${donutColor}40` }}
                   >
                     {isCoverageActive ? 'COMEDOR' : statusBadgeText}
                   </span>
                 </div>
 
-                {/* Center: Large KPI Compliance & Counts */}
-                <div className="my-1 flex items-baseline justify-between">
-                  <div className="flex items-baseline gap-1 font-mono">
-                    <span className="text-3xl font-black text-slate-900">{present}</span>
-                    <span className="text-xs text-slate-400 font-bold">/ {target} op</span>
+                {/* Center: Donut Gauge + Operator Counts */}
+                <div className="my-1 flex items-center justify-between gap-2">
+                  <div>
+                    <div className="flex items-baseline gap-1 font-mono">
+                      <span className="text-3xl font-black text-slate-900">{present}</span>
+                      <span className="text-xs text-slate-400 font-bold">/ {target} op</span>
+                    </div>
+                    <span className="text-[10px] font-extrabold uppercase font-mono block mt-1" style={{ color: donutColor }}>
+                      {pct >= 100 ? '🟢 COMPLETO' : (pct >= 50 ? '🟡 PARCIAL' : '🔴 FALTANTES')}
+                    </span>
                   </div>
 
-                  <span className="text-3xl font-black font-mono" style={{ color: statusColor }}>
-                    {pct}%
-                  </span>
+                  <SmallCircularGauge
+                    percentage={pct}
+                    color={donutColor}
+                    present={present}
+                    target={target}
+                  />
                 </div>
 
-                {/* Bottom Progress Bar & Downtime */}
-                <div className="space-y-1.5">
-                  <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
-                    <div
-                      className="h-full transition-all duration-500 rounded-full"
-                      style={{ width: `${Math.min(100, pct)}%`, backgroundColor: statusColor }}
-                    />
-                  </div>
-
-                  <div className="flex justify-between items-center text-[10px] font-mono text-slate-500 pt-0.5">
-                    <span className="font-bold text-slate-400">TIEMPO MUERTO:</span>
-                    {dtMin > 0 ? (
-                      <span className="text-amber-700 font-extrabold bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
-                        {dtMin} min
-                      </span>
-                    ) : (
-                      <span className="font-semibold text-slate-400">0 min</span>
-                    )}
-                  </div>
+                {/* Bottom Downtime Footer */}
+                <div className="flex justify-between items-center text-[10px] font-mono text-slate-500 pt-1 border-t border-slate-100">
+                  <span className="font-bold text-slate-400">TIEMPO MUERTO:</span>
+                  {dtMin > 0 ? (
+                    <span className="text-amber-700 font-extrabold bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                      {dtMin} min
+                    </span>
+                  ) : (
+                    <span className="font-semibold text-slate-400">0 min</span>
+                  )}
                 </div>
               </div>
             );

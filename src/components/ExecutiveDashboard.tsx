@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { supabase, getActiveStaffingTarget, DEFAULT_SMT_LAYOUT, mapScanFromSupabase, calculateLineMetrics } from '../lib/supabaseClient';
+import { supabase, getActiveStaffingTarget, DEFAULT_SMT_LAYOUT, mapScanFromSupabase, calculateLineMetrics, getLineIntegrationTimeMinutes } from '../lib/supabaseClient';
 import { 
   Users, AlertTriangle, Clock, Percent, Search, Settings, ExternalLink, 
   BarChart2, LineChart as LineChartIcon, PieChart as PieChartIcon, Layers, 
@@ -197,15 +197,6 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
   const showFeedback = (type: 'success' | 'error', text: string) => {
     setFeedbackMsg({ type, text });
     setTimeout(() => setFeedbackMsg({ type: null, text: '' }), 3000);
-  };
-
-  // Helper count present operators based on distinct scanned employee numbers
-  const getPresentOperatorsCount = (lineId: string) => {
-    const lineScans = scans.filter((s: any) => s.line_id === lineId);
-    const distinctNumbers = new Set(
-      lineScans.map((s: any) => s.employee_number || s.badge_id).filter(Boolean)
-    );
-    return distinctNumbers.size;
   };
 
   // Helper active downtime minutes
@@ -523,25 +514,16 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
   // KPI Calculations
   let totalRequired = 0;
   let totalPresent = 0;
-  let missingCount = 0;
   let totalDowntimeToday = 0;
 
   lines.forEach((line: any) => {
-    const { target } = getActiveStaffingTarget(line.id);
-    const present = getPresentOperatorsCount(line.id);
-    totalRequired += target;
-    totalPresent += present;
-    if (present < target) missingCount += (target - present);
+    const metrics = calculateLineMetrics(line.id, posiciones, scans, coverages);
+    totalRequired += metrics.target;
+    totalPresent += metrics.scannedCount;
+    totalDowntimeToday += getLineIntegrationTimeMinutes(line, scans);
   });
 
-  const todayStr = new Date().toISOString().split('T')[0];
-  downtimes.forEach((dt: any) => {
-    if (dt.date === todayStr) {
-      const duration = dt.resolved ? (dt.duration_minutes || 0) : getActiveDowntimeMinutes(dt.line_id);
-      totalDowntimeToday += duration;
-    }
-  });
-
+  const missingCount = Math.max(0, totalRequired - totalPresent);
   const globalCoveragePct = totalRequired > 0 ? Math.round((totalPresent / totalRequired) * 100) : 0;
 
   // Filter lines for left list
@@ -769,7 +751,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                   <th className="py-2.5 px-3">Nombre</th>
                   <th className="py-2.5 px-3">Cobertura</th>
                   <th className="py-2.5 px-3">Personal</th>
-                  <th className="py-2.5 px-3">TM</th>
+                  <th className="py-2.5 px-3" title="Tiempo transcurrido para completar plantilla de turno">T. Integración</th>
                   <th className="py-2.5 px-3 text-right">⚙</th>
                 </tr>
               </thead>
@@ -815,7 +797,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                   filteredLines.map((line: any) => {
                     const metrics = calculateLineMetrics(line.id, posiciones, scans, coverages);
                     const { target, scannedCount: present, coveragePct: pct, statusEmoji, statusColor, isCoverageActive } = metrics;
-                    const activeDtMin = getActiveDowntimeMinutes(line.id);
+                    const integrationMin = getLineIntegrationTimeMinutes(line, scans);
                     const isSelected = selectedLineId === line.id && rightPanelMode === 'config';
 
                   return (
@@ -840,7 +822,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                         {present}/{target}
                       </td>
                       <td className="py-2.5 px-3 font-mono text-slate-600">
-                        {activeDtMin > 0 ? <span className="text-amber-600 font-bold">{activeDtMin}m</span> : '0m'}
+                        {integrationMin > 0 ? <span className="text-amber-600 font-bold">{integrationMin}m</span> : '0m'}
                       </td>
                       <td className="py-2.5 px-3 text-right">
                         <div className="flex items-center justify-end gap-1">

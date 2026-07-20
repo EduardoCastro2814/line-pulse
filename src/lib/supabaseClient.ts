@@ -527,13 +527,14 @@ export const recalculateLineState = (lineId: string) => {
 };
 
 // Helper to determine active staffing target for a line at the current time
-// Shift Determination Engine with 15-Minute Early Scan Tolerance Window
-export function getShiftForTime(line: any, dateObj: Date = new Date(), toleranceMinutes: number = 15): {
+// Canonical Global Single Source of Truth for Active Shift Determination
+export function getCurrentShift(line: any, dateObj: Date = new Date(), toleranceMinutes: number = 15): {
   shiftName: string;
   shiftKey: 'shift1' | 'shift2' | 'shift3';
   target: number;
+  startTimeStr: string;
 } {
-  if (!line) return { shiftName: 'Turno 1', shiftKey: 'shift1', target: 6 };
+  if (!line) return { shiftName: 'Turno 1', shiftKey: 'shift1', target: 6, startTimeStr: '06:00:00' };
 
   const s1Str = line.shift1_start || '06:00:00';
   const s2Str = line.shift2_start || '14:00:00';
@@ -553,23 +554,71 @@ export function getShiftForTime(line: any, dateObj: Date = new Date(), tolerance
   let shiftKey: 'shift1' | 'shift2' | 'shift3' = 'shift1';
   let shiftName = 'Turno 1';
   let target = Number(line.shift1_target || 6);
+  let startTimeStr = s1Str;
 
   // Checks with early tolerance window (e.g. 15 mins prior to shift start)
   if (curMin >= (s2Min - toleranceMinutes) && curMin < (s3Min - toleranceMinutes)) {
     shiftKey = 'shift2';
     shiftName = 'Turno 2';
     target = Number(line.shift2_target || 6);
+    startTimeStr = s2Str;
   } else if (curMin >= (s3Min - toleranceMinutes) || curMin < (s1Min - toleranceMinutes)) {
     shiftKey = 'shift3';
     shiftName = 'Turno 3';
     target = Number(line.shift3_target || 4);
+    startTimeStr = s3Str;
   } else {
     shiftKey = 'shift1';
     shiftName = 'Turno 1';
     target = Number(line.shift1_target || 6);
+    startTimeStr = s1Str;
   }
 
-  return { shiftName, shiftKey, target };
+  return { shiftName, shiftKey, target, startTimeStr };
+}
+
+// Alias for getShiftForTime for backward compatibility
+export const getShiftForTime = getCurrentShift;
+
+// Color helper for Donut Gauge (0-49% Red, 50-99% Yellow, 100% Green)
+export function getDonutColor(pct: number): string {
+  if (pct >= 100) return '#22C55E'; // Verde
+  if (pct >= 50) return '#EAB308';  // Amarillo
+  return '#EF4444';                 // Rojo
+}
+
+// Helper for Line Staffing Integration Time (minutes from shift start until template completion or last scan)
+export function getLineIntegrationTimeMinutes(line: any, scansList: any[]): number {
+  if (!line) return 0;
+  const now = new Date();
+  const shiftInfo = getCurrentShift(line, now, 15);
+
+  const sStartStr = shiftInfo.startTimeStr || '06:00:00';
+  const [sHour, sMin] = sStartStr.split(':').map(Number);
+  const shiftStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), sHour || 0, sMin || 0, 0);
+
+  const todayStr = now.toISOString().split('T')[0];
+  const activeScans = scansList.filter((s: any) => {
+    if (s.line_id !== line.id || s.was_successful === false) return false;
+    const scanDate = new Date(s.event_time || s.scan_time || s.created_at || Date.now());
+    return scanDate.toISOString().split('T')[0] === todayStr && (s.shift === shiftInfo.shiftName || getCurrentShift(line, scanDate, 15).shiftName === shiftInfo.shiftName);
+  });
+
+  if (activeScans.length === 0) {
+    if (now > shiftStartDate) {
+      return Math.max(0, Math.floor((now.getTime() - shiftStartDate.getTime()) / 60000));
+    }
+    return 0;
+  }
+
+  const scanTimes = activeScans.map(s => new Date(s.event_time || s.scan_time || s.created_at || Date.now()).getTime());
+  const maxScanTime = Math.max(...scanTimes);
+
+  if (maxScanTime > shiftStartDate.getTime()) {
+    return Math.max(0, Math.floor((maxScanTime - shiftStartDate.getTime()) / 60000));
+  }
+
+  return 0;
 }
 
 // Helper to determine active staffing target for a line at the current time

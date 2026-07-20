@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { supabase, getActiveStaffingTarget, DEFAULT_SMT_LAYOUT, validateAndMapScanInsert, mapScanFromSupabase, calculateLineMetrics } from '../lib/supabaseClient';
-import { Clock, QrCode, Maximize, Minimize, Utensils, CheckCircle2, AlertTriangle, ArrowLeft } from 'lucide-react';
+import { Clock, QrCode, Maximize, Minimize, CheckCircle2, AlertTriangle, ArrowLeft } from 'lucide-react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 
 interface LineDetailsModalProps {
@@ -439,8 +439,8 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[#F5F7FA] text-slate-800 overflow-hidden font-sans select-none">
       
-      {/* 1. INDUSTRIAL MES / ANDON DOMINANT HEADER (#005486) */}
-      <header className="h-28 shrink-0 bg-[#005486] border-b-2 border-[#003c61] px-6 lg:px-8 flex items-center justify-between z-20 shadow-lg text-white gap-4 flex-wrap lg:flex-nowrap">
+      {/* 1. INDUSTRIAL MES / ANDON HEADER (#005486) — CLEAN & FOCUSED */}
+      <header className="h-24 shrink-0 bg-[#005486] border-b-2 border-[#003c61] px-6 lg:px-8 flex items-center justify-between z-20 shadow-lg text-white gap-4">
         
         {/* Left: Back Button & Line Info */}
         <div className="flex items-center space-x-4 shrink-0">
@@ -466,100 +466,51 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
           </div>
         </div>
 
-        {/* Center: Dominant Clock (48px) & Active Shift Badge */}
+        {/* Center: Active Shift, Dominant Clock (48px) & Date */}
         <div className="flex items-center gap-6 bg-black/25 border border-white/15 px-6 py-2 rounded-2xl shadow-inner text-white">
           
-          {/* Active Shift & Target Template */}
+          {/* Active Shift Badge */}
           <div className="flex flex-col justify-center">
             <span className="text-[10px] font-black uppercase tracking-widest text-emerald-300 block font-mono">
               TURNO ACTIVO
             </span>
-            <div className="flex items-center gap-1.5 mt-0.5">
-              <span className="text-xl font-black font-mono text-white uppercase flex items-center gap-1.5">
-                <span>{shiftColorEmoji}</span>
-                <span>{activeShiftName}</span>
-              </span>
-            </div>
-            <span className="text-xs font-bold text-white/90 font-mono mt-0.5">
-              Plantilla: <strong className="text-emerald-300 font-mono font-black">{target} op</strong>
+            <span className="text-xl font-black font-mono text-white uppercase flex items-center gap-1.5 mt-0.5">
+              <span>{shiftColorEmoji}</span>
+              <span>{activeShiftName}</span>
             </span>
           </div>
 
           <div className="h-10 w-px bg-white/20" />
 
           {/* Dominant Clock (48px) */}
-          <div className="flex flex-col items-center justify-center">
-            <div className="flex items-center gap-2">
-              <Clock className="w-6 h-6 text-emerald-400 animate-pulse" />
-              <span className="text-3xl lg:text-4xl xl:text-5xl font-black font-mono tracking-widest text-white leading-none">
-                {currentTimeStr}
-              </span>
-            </div>
-            <span className="text-[11px] font-bold text-white/70 block mt-1 tracking-wide">
-              {currentDateStr}
+          <div className="flex items-center gap-2">
+            <Clock className="w-6 h-6 text-emerald-400 animate-pulse" />
+            <span className="text-3xl lg:text-4xl xl:text-5xl font-black font-mono tracking-widest text-white leading-none">
+              {currentTimeStr}
             </span>
+          </div>
+
+          <div className="h-10 w-px bg-white/20 hidden md:block" />
+
+          {/* Date */}
+          <div className="text-right hidden md:block">
+            <span className="text-[10px] font-black uppercase tracking-widest text-white/70 block">
+              FECHA DE PLANTA
+            </span>
+            <span className="text-xs font-bold text-white font-mono">{currentDateStr}</span>
           </div>
 
         </div>
 
-        {/* Right: Live MES / Andon Executive KPIs (Escaneados, Cobertura, Faltantes, Estado) */}
-        <div className="flex items-center gap-3 shrink-0">
-          <div className="flex items-center gap-4 bg-white/10 border border-white/20 px-4 py-2 rounded-2xl shadow-sm font-mono">
-            
-            {/* Escaneados / Target */}
-            <div className="text-center">
-              <span className="text-[9px] font-black uppercase tracking-wider text-white/70 block">Escaneados</span>
-              <span className="text-lg font-black text-white">
-                {scannedCount} / {target}
-              </span>
-            </div>
-
-            <div className="h-7 w-px bg-white/20" />
-
-            {/* Cobertura % */}
-            <div className="text-center">
-              <span className="text-[9px] font-black uppercase tracking-wider text-white/70 block">Cobertura</span>
-              <span className="text-lg font-black" style={{ color: statusColor }}>
-                {coveragePct}%
-              </span>
-            </div>
-
-            <div className="h-7 w-px bg-white/20" />
-
-            {/* Faltantes */}
-            <div className="text-center">
-              <span className="text-[9px] font-black uppercase tracking-wider text-white/70 block">Faltantes</span>
-              <span className="text-lg font-black text-red-300">
-                {missingCount}
-              </span>
-            </div>
-
-          </div>
-
-          {/* Status Badge & Fullscreen */}
-          <div className="flex items-center gap-2">
-            {isCoverageActive && (
-              <div className="hidden xl:flex items-center gap-1 bg-blue-500/20 border border-blue-200/40 text-white px-2.5 py-1 rounded-xl text-[10px] font-bold animate-pulse">
-                <Utensils className="w-3.5 h-3.5 text-white" />
-                <span>Comedor</span>
-              </div>
-            )}
-
-            <span 
-              className="px-3 py-2 rounded-xl text-xs font-black uppercase font-mono tracking-wider shadow-sm border text-center max-w-[160px]"
-              style={{ backgroundColor: `${statusColor}25`, color: '#FFFFFF', borderColor: `${statusColor}60` }}
-            >
-              {statusBadgeText}
-            </span>
-
-            <button
-              onClick={toggleFullscreen}
-              className="p-3 rounded-2xl bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer border border-white/20"
-              title="Pantalla Completa"
-            >
-              {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
-            </button>
-          </div>
+        {/* Right: Actions */}
+        <div className="flex items-center space-x-3 shrink-0">
+          <button
+            onClick={toggleFullscreen}
+            className="p-3 rounded-2xl bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer border border-white/20"
+            title="Pantalla Completa"
+          >
+            {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
+          </button>
         </div>
       </header>
 
