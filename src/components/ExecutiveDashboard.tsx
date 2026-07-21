@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { supabase, getActiveStaffingTarget, DEFAULT_SMT_LAYOUT, mapScanFromSupabase, calculateLineMetrics, getLineIntegrationTimeMinutes } from '../lib/supabaseClient';
+import { supabase, getActiveStaffingTarget, DEFAULT_SMT_LAYOUT, mapScanFromSupabase, calculateLineMetrics, getLineIntegrationTimeMinutes, getCurrentShift } from '../lib/supabaseClient';
 import { 
   Users, AlertTriangle, Clock, Percent, Search, Settings, ExternalLink, 
   BarChart2, Layers, Save, Upload, Plus, X, CheckCircle2
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid 
+  ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend 
 } from 'recharts';
 
 interface ExecutiveDashboardProps {
@@ -490,21 +490,73 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
   // Chart Data Preparation (100% REAL DATA FROM SUPABASE)
   const todayISO = new Date().toISOString().split('T')[0];
 
-  // 1. Tiempo Muerto Por Línea (Real from tiempos_muertos)
+  // 1. TIEMPO MUERTO POR LÍNEA (Real Bar Chart data from Supabase tiempos_muertos)
   const chartDowntimeData = lines.map((l: any) => {
-    const lineDts = downtimes.filter((d: any) => d.line_id === l.id && d.date === todayISO);
-    const sumMin = lineDts.reduce((acc: number, d: any) => acc + (d.resolved ? (d.duration_minutes || 0) : getActiveDowntimeMinutes(l.id)), 0);
+    const lineDts = downtimes.filter((d: any) => d.line_id === l.id && (d.date === todayISO || !d.date));
+    const sumMin = lineDts.reduce((acc: number, d: any) => acc + (d.resolved ? (Number(d.duration_minutes) || 0) : getActiveDowntimeMinutes(l.id)), 0);
     return {
       name: l.name,
       minutos: sumMin
     };
   });
 
-  // 2. Tiempo de Integración Por Línea (Real calculated from shift start to template completion)
-  const chartIntegrationTimeData = lines.map((l: any) => ({
-    name: l.name,
-    minutos: getLineIntegrationTimeMinutes(l, scans)
-  }));
+  // 2. TIEMPO DE INTEGRACIÓN (Real Line Chart data calculated over time slots 14:00, 14:10, 14:20...)
+  const generateIntegrationTimeline = () => {
+    if (!lines || lines.length === 0) return { chartData: [], lineColors: [] };
+    
+    const now = new Date();
+    const firstLine = lines[0];
+    const shiftInfo = getCurrentShift(firstLine, now, 15);
+    const startStr = shiftInfo.startTimeStr || '06:00:00';
+    const [startH, startM] = startStr.split(':').map(Number);
+    
+    const slots: { label: string; timestampMs: number }[] = [];
+    for (let i = 0; i <= 6; i++) {
+      const slotMinTotal = (startH * 60 + startM) + (i * 10);
+      const h = Math.floor(slotMinTotal / 60) % 24;
+      const m = slotMinTotal % 60;
+      const timeLabel = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+      
+      const slotDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0);
+      slots.push({ label: timeLabel, timestampMs: slotDate.getTime() });
+    }
+
+    const lineColors = ['#005486', '#059669', '#D97706', '#2563EB', '#7C3AED', '#DB2777', '#0891B2'];
+
+    const chartData = slots.map(slot => {
+      const row: any = { time: slot.label };
+      lines.forEach((l: any) => {
+        const lineShift = getCurrentShift(l, new Date(slot.timestampMs), 15);
+        const [lStartH, lStartM] = (lineShift.startTimeStr || '06:00:00').split(':').map(Number);
+        const lShiftStartMs = new Date(now.getFullYear(), now.getMonth(), now.getDate(), lStartH, lStartM, 0).getTime();
+
+        if (slot.timestampMs < lShiftStartMs) {
+          row[l.name] = 0;
+        } else {
+          const lineScansUpToSlot = scans.filter((s: any) => {
+            if (s.line_id !== l.id || s.was_successful === false) return false;
+            const sTime = new Date(s.event_time || s.scan_time || s.created_at || Date.now()).getTime();
+            return sTime <= slot.timestampMs;
+          });
+
+          const target = lineShift.target || 6;
+          const distinctEmps = new Set(lineScansUpToSlot.map(s => s.employee_number || s.badge_id).filter(Boolean)).size;
+
+          if (distinctEmps >= target && lineScansUpToSlot.length > 0) {
+            const maxScanMs = Math.max(...lineScansUpToSlot.map(s => new Date(s.event_time || s.scan_time || s.created_at || Date.now()).getTime()));
+            row[l.name] = Math.max(0, Math.floor((maxScanMs - lShiftStartMs) / 60000));
+          } else {
+            row[l.name] = Math.max(0, Math.floor((slot.timestampMs - lShiftStartMs) / 60000));
+          }
+        }
+      });
+      return row;
+    });
+
+    return { chartData, lineColors };
+  };
+
+  const integrationTimeline = generateIntegrationTimeline();
 
   const selectedLine = lines.find(l => l.id === selectedLineId);
   const activeCoverages = coverages.filter(c => c.line_id === selectedLineId);
@@ -1291,41 +1343,52 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                     <div className="flex items-center justify-between mb-2">
                       <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
                         <BarChart2 className="w-4 h-4 text-amber-600" />
-                        1. Tiempo Muerto Por Línea (min)
+                        1. TIEMPO MUERTO POR LÍNEA
                       </h4>
                       <span className="text-[10px] text-slate-400 font-mono">Supabase Realtime</span>
                     </div>
-                    <div className="h-52 w-full">
+                    <div className="h-56 w-full">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={chartDowntimeData}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
                           <XAxis dataKey="name" stroke="#64748B" fontSize={10} />
-                          <YAxis stroke="#64748B" fontSize={10} />
-                          <Tooltip />
+                          <YAxis stroke="#64748B" fontSize={10} unit=" min" />
+                          <Tooltip formatter={(val: any) => [`${val} min`, 'Tiempo Muerto']} />
                           <Bar dataKey="minutos" fill="#D97706" radius={[4, 4, 0, 0]} name="Minutos Tiempo Muerto" />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
                   </div>
 
-                  {/* CHART 2: Tiempo de Integración Por Línea (Real Bar Chart) */}
+                  {/* CHART 2: Tiempo de Integración (Real Line Chart) */}
                   <div className="bg-white border border-[#DCE3EA] p-4 rounded-xl shadow-sm flex flex-col justify-between">
                     <div className="flex items-center justify-between mb-2">
                       <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                        <Clock className="w-4 h-4 text-emerald-600" />
-                        2. Tiempo Integración Por Línea (min)
+                        <Clock className="w-4 h-4 text-[#005486]" />
+                        2. TIEMPO DE INTEGRACIÓN
                       </h4>
-                      <span className="text-[10px] text-slate-400 font-mono">Turno Activo</span>
+                      <span className="text-[10px] text-slate-400 font-mono font-bold text-[#005486]">Gráfico de Líneas</span>
                     </div>
-                    <div className="h-52 w-full">
+                    <div className="h-56 w-full">
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={chartIntegrationTimeData}>
+                        <LineChart data={integrationTimeline.chartData}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
-                          <XAxis dataKey="name" stroke="#64748B" fontSize={10} />
-                          <YAxis stroke="#64748B" fontSize={10} />
-                          <Tooltip />
-                          <Bar dataKey="minutos" fill="#059669" radius={[4, 4, 0, 0]} name="Minutos Integración" />
-                        </BarChart>
+                          <XAxis dataKey="time" stroke="#64748B" fontSize={10} />
+                          <YAxis stroke="#64748B" fontSize={10} unit=" min" />
+                          <Tooltip formatter={(val: any, name: any) => [`${val} min`, name]} />
+                          <Legend wrapperStyle={{ fontSize: '10px' }} />
+                          {lines.slice(0, 6).map((l: any, idx: number) => (
+                            <Line
+                              key={l.id}
+                              type="monotone"
+                              dataKey={l.name}
+                              stroke={integrationTimeline.lineColors[idx % integrationTimeline.lineColors.length]}
+                              strokeWidth={2.5}
+                              dot={{ r: 3 }}
+                              activeDot={{ r: 6 }}
+                            />
+                          ))}
+                        </LineChart>
                       </ResponsiveContainer>
                     </div>
                   </div>

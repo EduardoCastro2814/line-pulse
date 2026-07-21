@@ -410,13 +410,6 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
     )
   );
 
-  let shiftColorEmoji = '🟢';
-  if (activeShiftName === 'Turno 2') {
-    shiftColorEmoji = '🟡';
-  } else if (activeShiftName === 'Turno 3') {
-    shiftColorEmoji = '🔵';
-  }
-
   console.log('[DEBUG MONITOR KPIS]:', {
     lineId: line.id,
     posicionesRequeridas: target,
@@ -466,22 +459,9 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
           </div>
         </div>
 
-        {/* Center: Active Shift, Dominant Clock (48px) & Date */}
+        {/* Center: Dominant Clock & Date ONLY */}
         <div className="flex items-center gap-6 bg-black/25 border border-white/15 px-6 py-2 rounded-2xl shadow-inner text-white">
           
-          {/* Active Shift Badge */}
-          <div className="flex flex-col justify-center">
-            <span className="text-[10px] font-black uppercase tracking-widest text-emerald-300 block font-mono">
-              TURNO ACTIVO
-            </span>
-            <span className="text-xl font-black font-mono text-white uppercase flex items-center gap-1.5 mt-0.5">
-              <span>{shiftColorEmoji}</span>
-              <span>{activeShiftName}</span>
-            </span>
-          </div>
-
-          <div className="h-10 w-px bg-white/20" />
-
           {/* Dominant Clock (48px) */}
           <div className="flex items-center gap-2">
             <Clock className="w-6 h-6 text-emerald-400 animate-pulse" />
