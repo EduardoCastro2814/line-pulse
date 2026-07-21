@@ -863,8 +863,9 @@ export const calculateLineMetrics = (
       .filter(Boolean)
   ).size;
 
-  const coveragePct = target > 0 ? Math.round((distinctScanned / target) * 100) : 0;
-  const missingCount = Math.max(0, target - distinctScanned);
+  const cappedScanned = Math.min(distinctScanned, target);
+  const coveragePct = target > 0 ? Math.min(100, Math.round((cappedScanned / target) * 100)) : 0;
+  const missingCount = Math.max(0, target - cappedScanned);
 
   let statusColor = '#EF4444'; // Red
   let statusBadgeText = 'FALTA PERSONAL';
@@ -895,7 +896,7 @@ export const calculateLineMetrics = (
     target,
     normalTarget,
     coverageTarget,
-    scannedCount: distinctScanned,
+    scannedCount: cappedScanned,
     coveragePct,
     missingCount,
     statusColor,
@@ -1170,6 +1171,14 @@ class MockSupabaseQuery {
           return { data: scanRecord, error: { message: 'Empleado no existe en el catálogo' } };
         }
 
+        // Check active target capacity
+        const coverages = loadTable('coberturas');
+        const linesList = loadTable('lineas');
+        const metrics = calculateLineMetrics(lineId, [], data, coverages, linesList);
+        if (metrics.scannedCount >= metrics.target) {
+          return { data: null, error: { message: 'Capacidad máxima alcanzada. No se registró el empleado.' } };
+        }
+
         // Check line assignment template
         const assignments = loadTable('empleados_linea');
         const isAssigned = assignments.some((a: any) => a.employee_id === emp.id && a.line_id === lineId);
@@ -1192,7 +1201,6 @@ class MockSupabaseQuery {
 
         // Record history event
         const events = loadTable('historial_eventos');
-        const linesList = loadTable('lineas');
         const lineName = linesList.find((l: any) => l.id === lineId)?.name || 'N/A';
 
         if (!isAssigned) {
@@ -1428,6 +1436,15 @@ if (isMock && typeof window !== 'undefined') {
         nextEventType = 'shift_end';
       } else {
         nextEventType = 'shift_start';
+      }
+    }
+
+    // Enforce target capacity for emulator checks:
+    if (nextEventType === 'shift_start' || nextEventType === 'lunch_return') {
+      const coverages = loadTable('coberturas');
+      const metrics = calculateLineMetrics(assoc.line_id, [], escaneosList, coverages, lineas);
+      if (metrics.scannedCount >= metrics.target) {
+        return; // SKIP check-in to prevent exceeding target
       }
     }
 

@@ -1354,6 +1354,24 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                       </div>
                     </div>
 
+                    {(() => {
+                      const metrics = calculateLineMetrics(selectedLineId || '', posiciones, scans, coverages, lines);
+                      const rawScansCount = metrics.validScansTodayShift;
+                      const limit = metrics.target;
+                      
+                      if (rawScansCount > limit) {
+                        return (
+                          <div className="bg-amber-50 border border-amber-200 text-amber-950 px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2 shadow-sm animate-pulse">
+                            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                            <span>
+                              <strong>⚠️ ADVERTENCIA EXCEDENTE:</strong> Se detectaron {rawScansCount} registros de asistencia activos, lo cual supera la plantilla configurada de {limit} operadores. Por favor, elimine {rawScansCount - limit} registro(s) sobrante(s) en la lista inferior.
+                            </span>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
+
                     <div className="border border-[#DCE3EA] rounded-xl overflow-hidden shadow-sm bg-white max-h-[380px] overflow-y-auto">
                       <table className="w-full text-left border-collapse">
                         <thead className="bg-[#F5F7FA] sticky top-0 z-10 border-b border-[#DCE3EA] text-[10px] font-black uppercase text-slate-600 tracking-wider">
