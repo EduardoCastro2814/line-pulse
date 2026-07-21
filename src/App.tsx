@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Monitor, LayoutDashboard, Clock, AlertTriangle, User, FileText } from 'lucide-react';
+import { Monitor, LayoutDashboard, Clock, User, FileText } from 'lucide-react';
 import { ExecutiveDashboard } from './components/ExecutiveDashboard';
 import { TvDashboard } from './components/TvDashboard';
 import { LineDetailsModal } from './components/LineDetailsModal';
 import { ReportsView } from './components/ReportsView';
 import { ScannerDrawer } from './components/ScannerDrawer';
-import { supabase } from './lib/supabaseClient';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 
 export default function App() {
@@ -13,7 +12,6 @@ export default function App() {
   const location = useLocation();
 
   const [currentClock, setCurrentClock] = useState('');
-  const [systemAlerts, setSystemAlerts] = useState<string[]>([]);
   const [isScannerOpen] = useState(false);
   
   // User Profile Role Control
@@ -26,30 +24,6 @@ export default function App() {
       setCurrentClock(now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }));
     }, 1000);
     return () => clearInterval(timer);
-  }, []);
-
-  // Monitor database for understaffed alerts
-  const checkActiveAlerts = async () => {
-    const { data: lines } = await supabase.from('lineas').select('*');
-    if (lines) {
-      const incomplete = lines.filter((l: any) => l.status === 'FALTA PERSONAL').map((l: any) => l.name);
-      setSystemAlerts(incomplete);
-    }
-  };
-
-  useEffect(() => {
-    checkActiveAlerts();
-    
-    // Subscribe to DB triggers
-    const channel = supabase.channel('app-global-alerts')
-      .on('postgres_changes', { event: '*', schema: 'public' }, () => {
-        checkActiveAlerts();
-      })
-      .subscribe();
-
-    return () => {
-      channel.unsubscribe();
-    };
   }, []);
 
   const isCurrentRoute = (path: string) => location.pathname === path;
@@ -85,14 +59,6 @@ export default function App() {
                   <span className="block text-[9px] text-white/70 font-bold uppercase tracking-wider font-sans">Operations MES Platform</span>
                 </div>
               </div>
-
-              {/* Dynamic Alert Ticker */}
-              {systemAlerts.length > 0 && (
-                <div className="hidden lg:flex items-center space-x-2 bg-red-600/20 border border-red-200/30 px-3 py-1 rounded-lg text-white text-xs font-semibold">
-                  <AlertTriangle className="w-4 h-4 text-amber-300" />
-                  <span>Alerta: <strong>{systemAlerts.join(', ')}</strong></span>
-                </div>
-              )}
 
               {/* Navigation & Controls */}
               <div className="flex items-center space-x-3">
