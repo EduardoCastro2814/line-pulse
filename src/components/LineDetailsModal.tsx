@@ -230,26 +230,33 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
       return;
     }
 
-    const configuredPositionsCount = posiciones.length;
-    const { target: shiftTarget, isCoverageActive } = getActiveStaffingTarget(lineId);
-    const target = isCoverageActive 
-      ? shiftTarget 
-      : (configuredPositionsCount > 0 ? configuredPositionsCount : (shiftTarget > 0 ? shiftTarget : 6));
+    const targetInfo = getActiveStaffingTarget(lineId, coberturas);
+    const { 
+      target, 
+      isCoverageActive, 
+      activeShiftName, 
+      validScanStartMin, 
+      validScanEndMin 
+    } = targetInfo;
 
     const now = new Date();
     const todayLocalStr = getLocalDateString(now);
-    const shiftInfo = getCurrentShift(line, now, 15);
-    const activeShiftName = shiftInfo.shiftName;
 
-    // Filter activeScans to ONLY include scans made TODAY in the ACTIVE SHIFT
+    // Filter activeScans to ONLY include scans made TODAY in the ACTIVE SHIFT and current staging window
     const todayShiftScans = escaneosRef.current.filter((s: any) => {
       if (s.line_id !== lineId || s.was_successful === false) return false;
       const scanDate = new Date(s.event_time || s.scan_time || s.created_at || Date.now());
       if (isNaN(scanDate.getTime())) return false;
 
       if (getLocalDateString(scanDate) !== todayLocalStr) return false;
-      if (s.shift) return s.shift === activeShiftName;
-      return getCurrentShift(line, scanDate, 15).shiftName === activeShiftName;
+      if (s.shift) {
+        if (s.shift !== activeShiftName) return false;
+      } else {
+        if (getCurrentShift(line, scanDate, 15).shiftName !== activeShiftName) return false;
+      }
+
+      const scanMin = scanDate.getHours() * 60 + scanDate.getMinutes();
+      return scanMin >= validScanStartMin && scanMin < validScanEndMin;
     });
 
     const currentScannedList = Array.from(

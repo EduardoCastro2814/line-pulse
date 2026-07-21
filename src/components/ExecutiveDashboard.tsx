@@ -358,7 +358,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
 
   const handleSavePositions = async () => {
     if (!selectedLineId) return;
-    const { target: targetCount } = getActiveStaffingTarget(selectedLineId);
+    const { target: targetCount } = getActiveStaffingTarget(selectedLineId, coverages);
     
     // Filter positions that belong to this line and are placed on canvas
     const currentLinePositions = posiciones.filter(
@@ -434,14 +434,35 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
         
         // Recalculate line status after deletion
         if (selectedLineId) {
-          const remainingScans = scans.filter(s => s.id !== scanId && s.line_id === selectedLineId);
-          const distinctRemaining = new Set(remainingScans.map(s => s.employee_number || s.badge_id).filter(Boolean)).size;
-          const { target, isCoverageActive } = getActiveStaffingTarget(selectedLineId);
+          const targetInfo = getActiveStaffingTarget(selectedLineId, coverages);
+          const { target, isCoverageActive, validScanStartMin, validScanEndMin, activeShiftName } = targetInfo;
+
+          const todayLocalStr = getLocalDateString(new Date());
+          const remainingScans = scans.filter((s: any) => {
+            if (s.id === scanId || s.line_id !== selectedLineId || s.was_successful === false) return false;
+            const scanDate = new Date(s.event_time || s.scan_time || s.created_at || Date.now());
+            if (isNaN(scanDate.getTime())) return false;
+            if (getLocalDateString(scanDate) !== todayLocalStr) return false;
+            if (s.shift) {
+              if (s.shift !== activeShiftName) return false;
+            } else {
+              const selectedLineObj = lines.find(l => l.id === selectedLineId);
+              if (getCurrentShift(selectedLineObj, scanDate, 15).shiftName !== activeShiftName) return false;
+            }
+            const scanMin = scanDate.getHours() * 60 + scanDate.getMinutes();
+            return scanMin >= validScanStartMin && scanMin < validScanEndMin;
+          });
+
+          const distinctRemaining = new Set(remainingScans.map(s => (s.employee_number || s.badge_id || '').trim()).filter(Boolean)).size;
           const newPct = target > 0 ? Math.round((distinctRemaining / target) * 100) : 0;
 
           let newStatus = 'FALTA PERSONAL';
           if (isCoverageActive) {
-            newStatus = 'COBERTURA DE COMEDOR';
+            if (newPct >= 100) {
+              newStatus = 'COBERTURA COMEDOR';
+            } else {
+              newStatus = 'FALTA PERSONAL';
+            }
           } else if (newPct >= 100) {
             newStatus = 'PLANTILLA COMPLETA';
           } else if (newPct > 0) {
@@ -1087,9 +1108,8 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                   </div>
                 )}
 
-                {/* SUB-TAB 2: LAYOUT Y POSICIONES OPERATIVAS */}
                 {configSubTab === 'layout' && (() => {
-                  const targetCount = Math.max(1, getActiveStaffingTarget(selectedLineId || '').target || selectedLine.shift1_target || 6);
+                  const targetCount = Math.max(1, getActiveStaffingTarget(selectedLineId || '', coverages).target || (selectedLineId ? (lines.find(l => l.id === selectedLineId)?.shift1_target || 6) : 6));
                   const targetPosCodes = Array.from({ length: targetCount }, (_, i) => `POS${String(i + 1).padStart(2, '0')}`);
                   const currentLinePlacedPos = posiciones.filter(p => p.line_id === selectedLineId && p.placed !== false);
                   const placedPosCodes = new Set(currentLinePlacedPos.map(p => p.code));
@@ -1280,7 +1300,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                       <div className="flex items-center gap-2">
                         <Clock className="w-4 h-4 text-[#005486]" />
                         <span className="font-extrabold text-[#005486] uppercase tracking-wider text-[11px] font-mono">
-                          Historial de Escaneos (HOY) — {selectedLine.name}
+                          Historial de Escaneos (HOY) — {selectedLine?.name || ''}
                         </span>
                         <span className="text-[10px] text-slate-500 font-bold font-mono bg-white px-2 py-0.5 rounded border border-[#DCE3EA]">
                           {scans.filter((s: any) => {

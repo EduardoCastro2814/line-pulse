@@ -661,21 +661,24 @@ export function getLineDowntimeMinutes(lineId: string, downtimesList: any[], dat
   }, 0);
 }
 
-// Helper to determine active staffing target for a line at the current time
-export const getActiveStaffingTarget = (
+// Helper to determine active staffing stage, target, and valid scan time window for a line at the current time
+export function getActiveStaffingStageAndWindow(
   lineId: string,
   coveragesList: any[] = []
-): { 
-  target: number; 
+): {
+  stage: 'INICIO_TURNO' | 'COBERTURA_COMEDOR' | 'REGRESO_COMEDOR';
+  target: number;
   normalTarget: number;
   coverageTarget: number;
-  isCoverageActive: boolean; 
-  coverageDetails?: any; 
+  isCoverageActive: boolean;
+  coverageDetails?: any;
   activeShiftName: string;
   curTimeStr: string;
   startStr?: string;
   endStr?: string;
-} => {
+  validScanStartMin: number;
+  validScanEndMin: number;
+} {
   const lineas = loadTable('lineas');
   const line = lineas.find((l: any) => l.id === lineId);
   const now = new Date();
@@ -701,35 +704,105 @@ export const getActiveStaffingTarget = (
 
   const curMin = now.getHours() * 60 + now.getMinutes();
   const curTimeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+  const shiftStartMin = timeToMinutes(shiftInfo.startTimeStr);
 
-  for (const cov of covs) {
+  if (covs.length === 0) {
+    return {
+      stage: 'INICIO_TURNO',
+      target: normalTarget,
+      normalTarget,
+      coverageTarget: 0,
+      isCoverageActive: false,
+      activeShiftName,
+      curTimeStr,
+      validScanStartMin: shiftStartMin,
+      validScanEndMin: 1440
+    };
+  }
+
+  const sortedCovs = [...covs].sort((a, b) => timeToMinutes(a.start_time) - timeToMinutes(b.start_time));
+
+  // 1. Check if currently inside any coverage window
+  for (const cov of sortedCovs) {
     const startMin = timeToMinutes(cov.start_time);
     const endMin = timeToMinutes(cov.end_time);
 
     if (curMin >= startMin && curMin < endMin) {
       const coverageTarget = Number(cov.required_operators || 3);
-      return { 
-        target: coverageTarget, 
+      return {
+        stage: 'COBERTURA_COMEDOR',
+        target: coverageTarget,
         normalTarget,
         coverageTarget,
-        isCoverageActive: true, 
-        coverageDetails: cov, 
+        isCoverageActive: true,
+        coverageDetails: cov,
         activeShiftName,
         curTimeStr,
         startStr: cov.start_time,
-        endStr: cov.end_time
+        endStr: cov.end_time,
+        validScanStartMin: startMin,
+        validScanEndMin: endMin
       };
     }
   }
 
-  return { 
-    target: normalTarget, 
+  // 2. Check if we are after the end of the latest ended coverage window
+  const endedCovs = sortedCovs.filter(c => curMin >= timeToMinutes(c.end_time));
+  if (endedCovs.length > 0) {
+    const latestEnded = endedCovs[endedCovs.length - 1];
+    const endMin = timeToMinutes(latestEnded.end_time);
+
+    return {
+      stage: 'REGRESO_COMEDOR',
+      target: normalTarget,
+      normalTarget,
+      coverageTarget: 0,
+      isCoverageActive: false,
+      activeShiftName,
+      curTimeStr,
+      startStr: latestEnded.end_time,
+      validScanStartMin: endMin,
+      validScanEndMin: 1440
+    };
+  }
+
+  // 3. Otherwise, we must be before the first coverage window
+  const firstCov = sortedCovs[0];
+  const startMin = timeToMinutes(firstCov.start_time);
+
+  return {
+    stage: 'INICIO_TURNO',
+    target: normalTarget,
     normalTarget,
     coverageTarget: 0,
-    isCoverageActive: false, 
+    isCoverageActive: false,
     activeShiftName,
-    curTimeStr 
+    curTimeStr,
+    endStr: firstCov.start_time,
+    validScanStartMin: shiftStartMin,
+    validScanEndMin: startMin
   };
+}
+
+// Helper to determine active staffing target for a line at the current time
+export const getActiveStaffingTarget = (
+  lineId: string,
+  coveragesList: any[] = []
+): { 
+  target: number; 
+  normalTarget: number;
+  coverageTarget: number;
+  isCoverageActive: boolean; 
+  coverageDetails?: any; 
+  activeShiftName: string;
+  curTimeStr: string;
+  startStr?: string;
+  endStr?: string;
+  stage: 'INICIO_TURNO' | 'COBERTURA_COMEDOR' | 'REGRESO_COMEDOR';
+  validScanStartMin: number;
+  validScanEndMin: number;
+} => {
+  return getActiveStaffingStageAndWindow(lineId, coveragesList);
 };
 
 // Unified KPI & Line Status Calculator for Single Source of Truth with Automatic Shift Reset
@@ -744,10 +817,23 @@ export const calculateLineMetrics = (
 
   const now = new Date();
   const todayLocalStr = getLocalDateString(now);
-  const shiftInfo = getCurrentShift(line, now, 15);
-  const activeShiftName = shiftInfo.shiftName;
+  const targetInfo = getActiveStaffingTarget(lineId, coveragesList);
+  const { 
+    target, 
+    normalTarget, 
+    coverageTarget, 
+    isCoverageActive, 
+    coverageDetails, 
+    curTimeStr, 
+    startStr, 
+    endStr,
+    stage,
+    validScanStartMin,
+    validScanEndMin,
+    activeShiftName
+  } = targetInfo;
 
-  // Filter lineScans made TODAY (Local Date) and associated with the ACTIVE SHIFT
+  // Filter lineScans made TODAY (Local Date), associated with the ACTIVE SHIFT, AND within the active stage's time window!
   const lineScans = scansList.filter((s: any) => {
     if (s.line_id !== lineId || s.was_successful === false) return false;
 
@@ -758,11 +844,15 @@ export const calculateLineMetrics = (
     if (scanLocalDateStr !== todayLocalStr) return false;
 
     if (s.shift) {
-      return s.shift === activeShiftName;
+      if (s.shift !== activeShiftName) return false;
+    } else {
+      const scanShiftInfo = getCurrentShift(line, scanDate, 15);
+      if (scanShiftInfo.shiftName !== activeShiftName) return false;
     }
 
-    const scanShiftInfo = getCurrentShift(line, scanDate, 15);
-    return scanShiftInfo.shiftName === activeShiftName;
+    // STRICT STAGE FILTER: minutes of the day must fall in [validScanStartMin, validScanEndMin)
+    const scanMin = scanDate.getHours() * 60 + scanDate.getMinutes();
+    return scanMin >= validScanStartMin && scanMin < validScanEndMin;
   });
 
   const distinctScanned = new Set(
@@ -770,9 +860,6 @@ export const calculateLineMetrics = (
       .map((s: any) => (s.employee_number || s.badge_id || '').trim())
       .filter(Boolean)
   ).size;
-
-  const targetInfo = getActiveStaffingTarget(lineId, coveragesList);
-  const { target, normalTarget, coverageTarget, isCoverageActive, coverageDetails, curTimeStr, startStr, endStr } = targetInfo;
 
   const coveragePct = target > 0 ? Math.round((distinctScanned / target) * 100) : 0;
   const missingCount = Math.max(0, target - distinctScanned);
@@ -820,7 +907,8 @@ export const calculateLineMetrics = (
     coverageDetails,
     curTimeStr,
     startStr,
-    endStr
+    endStr,
+    stage
   };
 };
 
