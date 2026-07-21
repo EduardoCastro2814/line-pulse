@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { supabase, calculateLineMetrics, mapScanFromSupabase, getDonutColor, getLineIntegrationTimeMinutes, getLocalDateString, getCurrentShift } from '../lib/supabaseClient';
+import { supabase, calculateLineMetrics, mapScanFromSupabase, getLineIntegrationTimeMinutes, getLocalDateString, getCurrentShift } from '../lib/supabaseClient';
 import { Clock, Maximize, Minimize, LayoutDashboard } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
@@ -56,7 +56,9 @@ export const TvDashboard: React.FC = () => {
   const [scans, setScans] = useState<any[]>([]);
   const [downtimes, setDowntimes] = useState<any[]>([]);
   const [posiciones, setPosiciones] = useState<any[]>([]);
+  const [coverages, setCoverages] = useState<any[]>([]);
   const [currentClock, setCurrentClock] = useState('');
+  const [_tick, setTick] = useState(0);
   
   // Fullscreen state
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -67,6 +69,14 @@ export const TvDashboard: React.FC = () => {
       setCurrentClock(now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }));
     }, 1000);
     return () => clearInterval(timer);
+  }, []);
+
+  // Interval ticker for real-time coverage window transitions without page reload
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTick(t => t + 1);
+    }, 15000);
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -105,6 +115,9 @@ export const TvDashboard: React.FC = () => {
 
       const { data: posData } = await supabase.from('posiciones').select('*');
       setPosiciones(posData || []);
+
+      const { data: covData } = await supabase.from('coberturas').select('*');
+      setCoverages(covData || []);
     } catch (err) {
       console.error('Error loading TvDashboard data:', err);
     }
@@ -117,6 +130,7 @@ export const TvDashboard: React.FC = () => {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'escaneos' }, () => loadData())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'lineas' }, () => loadData())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'posiciones' }, () => loadData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'coberturas' }, () => loadData())
       .subscribe();
 
     return () => {
@@ -149,44 +163,51 @@ export const TvDashboard: React.FC = () => {
           </span>
         </div>
 
-        <div className="flex items-center space-x-4">
+        {/* Center Clock Widget */}
+        <div className="flex items-center space-x-2 bg-white/10 px-4 py-1.5 rounded-xl border border-white/20">
+          <Clock className="w-4 h-4 text-emerald-300" />
+          <span className="text-sm font-black font-mono tracking-widest text-emerald-300">
+            {currentClock || '00:00:00'}
+          </span>
+        </div>
+
+        {/* Right Action Buttons */}
+        <div className="flex items-center space-x-3">
           <button
-            onClick={() => navigate('/dashboard')}
-            className="flex items-center space-x-1.5 px-3 py-1.5 bg-white/15 hover:bg-white/25 text-white border border-white/20 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer"
+            onClick={() => navigate('/')}
+            className="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer border border-white/20 text-xs font-bold flex items-center gap-1.5"
+            title="Volver al Dashboard Principal"
           >
             <LayoutDashboard className="w-4 h-4" />
-            <span>Dashboard</span>
+            <span className="hidden sm:inline">Dashboard</span>
           </button>
-
-          <div className="flex items-center space-x-1.5 text-xs text-white font-mono font-bold bg-black/15 border border-white/10 px-3 py-1.5 rounded-xl">
-            <Clock className="w-4 h-4 text-emerald-300" />
-            <span>{currentClock || '--:--:--'}</span>
-          </div>
 
           <button
             onClick={toggleFullscreen}
-            className="p-2 bg-white/15 hover:bg-white/25 text-white border border-white/20 rounded-xl transition-all shadow-sm cursor-pointer"
-            title="Pantalla Completa"
+            className="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer border border-white/20 text-xs font-bold flex items-center gap-1.5"
+            title={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
           >
             {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
           </button>
         </div>
       </header>
 
-      {/* 2. CORPORATE LIGHT TV GRID OF LINES */}
-      <main className="flex-1 min-h-0 w-full overflow-hidden flex items-center justify-center p-3">
-        <div className="w-full h-full flex flex-wrap gap-4 items-start justify-center overflow-y-auto content-start p-2">
+      {/* 2. GRID CONTAINERS FOR LINES CARDS */}
+      <main className="flex-1 min-h-0 p-6 overflow-y-auto">
+        <div className="flex flex-wrap gap-5 justify-center items-center h-full">
           {lines.map((line: any) => {
-            const metrics = calculateLineMetrics(line.id, posiciones, scans, []);
+            const metrics = calculateLineMetrics(line.id, posiciones, scans, coverages);
             const { 
               target, 
               scannedCount: present, 
               coveragePct: pct, 
               statusEmoji, 
+              statusBadgeText,
+              statusColor,
               isCoverageActive
             } = metrics;
 
-            const donutColor = getDonutColor(pct);
+            const donutColor = statusColor;
             const dtMin = getActiveDowntimeMinutes(line.id);
             const integrationMin = getLineIntegrationTimeMinutes(line, scans);
 
@@ -214,7 +235,7 @@ export const TvDashboard: React.FC = () => {
                     </span>
                   </div>
                   {isCoverageActive && (
-                    <span className="px-2 py-0.5 rounded text-[9px] font-extrabold uppercase font-mono tracking-wide bg-blue-100 text-blue-700 border border-blue-300">
+                    <span className="px-2 py-0.5 rounded text-[9px] font-extrabold uppercase font-mono tracking-wide bg-blue-100 text-blue-700 border border-blue-300 animate-pulse">
                       COMEDOR
                     </span>
                   )}
@@ -230,10 +251,10 @@ export const TvDashboard: React.FC = () => {
                   />
                 </div>
 
-                {/* 4. Estado + 5. Tiempo Integración */}
+                {/* 4. Estado Indicador + 5. Tiempo Integración */}
                 <div className="flex justify-between items-center text-xs font-mono pt-2 border-t border-slate-100">
-                  <span className="font-extrabold text-[11px] uppercase tracking-wide" style={{ color: donutColor }}>
-                    {pct >= 100 ? '🟢 COMPLETO' : (pct >= 50 ? '🟡 PARCIAL' : '🔴 FALTANTES')}
+                  <span className="font-extrabold text-[10px] uppercase tracking-wide flex items-center gap-1" style={{ color: statusColor }}>
+                    {statusBadgeText}
                   </span>
                   
                   <div className="flex flex-col items-end">

@@ -76,12 +76,22 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
   const [escaneos, setEscaneos] = useState<any[]>([]);
   const [posiciones, setPosiciones] = useState<any[]>([]);
   const [tiemposMuertos, setTiemposMuertos] = useState<any[]>([]);
+  const [coberturas, setCoberturas] = useState<any[]>([]);
+  const [_tick, setTick] = useState(0);
 
   // Escaneos Ref to prevent stale closures in event listeners
   const escaneosRef = useRef<any[]>([]);
   useEffect(() => {
     escaneosRef.current = escaneos;
   }, [escaneos]);
+
+  // Real-time ticker for meal coverage window transitions
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTick(t => t + 1);
+    }, 15000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Inline scanner states & USB Direct Capture
   const [manualScanInput, setManualScanInput] = useState('');
@@ -98,6 +108,23 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
   const [currentDateStr, setCurrentDateStr] = useState('');
 
   const usbInputRef = useRef<HTMLInputElement>(null);
+
+  // Industrial Clock Ticker
+  useEffect(() => {
+    const tick = () => {
+      const now = new Date();
+      setCurrentTimeStr(now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }));
+      
+      const options: Intl.DateTimeFormatOptions = { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' };
+      const formattedDate = now.toLocaleDateString('es-MX', options);
+      const capitalizedDate = formattedDate.replace(/^\w/, c => c.toUpperCase());
+      setCurrentDateStr(capitalizedDate);
+    };
+
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -157,39 +184,25 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
       // Load downtime logs
       const { data: tmData } = await supabase.from('tiempos_muertos').select('*').eq('line_id', lineId);
       setTiemposMuertos(tmData || []);
+
+      // Load meal coverage windows
+      const { data: covData } = await supabase.from('coberturas').select('*').eq('line_id', lineId);
+      setCoberturas(covData || []);
     } catch (err) {
       console.warn('Handling empty line details in LineDetailsModal:', err);
     }
   };
 
   // Industrial Clock Ticker
-  useEffect(() => {
-    const tick = () => {
-      const now = new Date();
-      setCurrentTimeStr(now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }));
-      
-      const dateOptions: Intl.DateTimeFormatOptions = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
-      const formattedDate = now.toLocaleDateString('es-MX', dateOptions);
-      setCurrentDateStr(formattedDate.charAt(0).toUpperCase() + formattedDate.slice(1));
-    };
-
-    tick();
-    const interval = setInterval(tick, 1000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Supabase Realtime Subscription for Scans & Line Changes
+  // Supabase Realtime Subscription for Scans, Line & Coverage Changes
   useEffect(() => {
     if (isOpen && lineId) {
       loadData();
 
       const channel = supabase.channel(`line-detail-realtime-${lineId}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'escaneos' }, () => {
-          loadData();
-        })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'lineas' }, () => {
-          loadData();
-        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'escaneos' }, () => loadData())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'lineas' }, () => loadData())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'coberturas' }, () => loadData())
         .subscribe();
 
       return () => {
@@ -404,7 +417,7 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
   if (!isOpen || !line) return null;
 
   // Active Staffing Target & Coverage Calculations driven by UNIFIED calculateLineMetrics
-  const metrics = calculateLineMetrics(line.id, posiciones, escaneos, []);
+  const metrics = calculateLineMetrics(line.id, posiciones, escaneos, coberturas);
   const { 
     target, 
     scannedCount, 

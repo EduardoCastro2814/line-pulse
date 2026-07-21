@@ -662,51 +662,89 @@ export function getLineDowntimeMinutes(lineId: string, downtimesList: any[], dat
 }
 
 // Helper to determine active staffing target for a line at the current time
-export const getActiveStaffingTarget = (lineId: string): { target: number; isCoverageActive: boolean; coverageDetails?: any; activeShiftName: string } => {
-  const line = loadTable('lineas').find(l => l.id === lineId);
-  if (!line) return { target: 0, isCoverageActive: false, activeShiftName: 'Turno 1' };
-
+export const getActiveStaffingTarget = (
+  lineId: string,
+  coveragesList: any[] = []
+): { 
+  target: number; 
+  normalTarget: number;
+  coverageTarget: number;
+  isCoverageActive: boolean; 
+  coverageDetails?: any; 
+  activeShiftName: string;
+  curTimeStr: string;
+  startStr?: string;
+  endStr?: string;
+} => {
+  const lineas = loadTable('lineas');
+  const line = lineas.find((l: any) => l.id === lineId);
   const now = new Date();
-  const shiftInfo = getShiftForTime(line, now, 15);
+  const shiftInfo = getCurrentShift(line, now, 15);
   const activeShiftName = shiftInfo.shiftName;
+
+  const linePos = loadTable('posiciones').filter((p: any) => p.line_id === lineId);
   let normalTarget = shiftInfo.target;
-
-  // Check if lunch coverage is active
-  const nowStr = now.toTimeString().split(' ')[0];
-  const coverages = loadTable('coberturas').filter(c => c.line_id === lineId);
-  for (const cov of coverages) {
-    if (nowStr >= cov.start_time && nowStr <= cov.end_time) {
-      return { target: cov.required_operators, isCoverageActive: true, coverageDetails: cov, activeShiftName };
-    }
-  }
-
-  // Fallback if normalTarget is 0 or undefined
   if (!normalTarget || normalTarget <= 0) {
-    const posiciones = loadTable('posiciones').filter(p => p.line_id === lineId);
-    if (posiciones.length > 0) {
-      normalTarget = posiciones.length;
-    } else {
-      normalTarget = 6;
+    normalTarget = linePos.length > 0 ? linePos.length : 6;
+  }
+
+  // Use coveragesList from parameter or fallback to local table
+  const covs = (coveragesList && coveragesList.length > 0)
+    ? coveragesList.filter((c: any) => c.line_id === lineId)
+    : loadTable('coberturas').filter((c: any) => c.line_id === lineId);
+
+  const timeToMinutes = (tStr: string) => {
+    if (!tStr) return 0;
+    const parts = tStr.split(':').map(Number);
+    return (parts[0] || 0) * 60 + (parts[1] || 0);
+  };
+
+  const curMin = now.getHours() * 60 + now.getMinutes();
+  const curTimeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+
+  for (const cov of covs) {
+    const startMin = timeToMinutes(cov.start_time);
+    const endMin = timeToMinutes(cov.end_time);
+
+    if (curMin >= startMin && curMin < endMin) {
+      const coverageTarget = Number(cov.required_operators || 3);
+      return { 
+        target: coverageTarget, 
+        normalTarget,
+        coverageTarget,
+        isCoverageActive: true, 
+        coverageDetails: cov, 
+        activeShiftName,
+        curTimeStr,
+        startStr: cov.start_time,
+        endStr: cov.end_time
+      };
     }
   }
 
-  return { target: normalTarget, isCoverageActive: false, activeShiftName };
+  return { 
+    target: normalTarget, 
+    normalTarget,
+    coverageTarget: 0,
+    isCoverageActive: false, 
+    activeShiftName,
+    curTimeStr 
+  };
 };
 
 // Unified KPI & Line Status Calculator for Single Source of Truth with Automatic Shift Reset
 export const calculateLineMetrics = (
   lineId: string,
-  posicionesList: any[],
+  _posicionesList: any[],
   scansList: any[],
-  _coveragesList: any[] = []
+  coveragesList: any[] = []
 ) => {
-  const linePos = posicionesList.filter((p: any) => p.line_id === lineId);
   const lineas = loadTable('lineas');
   const line = lineas.find((l: any) => l.id === lineId);
 
   const now = new Date();
   const todayLocalStr = getLocalDateString(now);
-  const shiftInfo = getShiftForTime(line, now, 15);
+  const shiftInfo = getCurrentShift(line, now, 15);
   const activeShiftName = shiftInfo.shiftName;
 
   // Filter lineScans made TODAY (Local Date) and associated with the ACTIVE SHIFT
@@ -723,7 +761,7 @@ export const calculateLineMetrics = (
       return s.shift === activeShiftName;
     }
 
-    const scanShiftInfo = getShiftForTime(line, scanDate, 15);
+    const scanShiftInfo = getCurrentShift(line, scanDate, 15);
     return scanShiftInfo.shiftName === activeShiftName;
   });
 
@@ -733,10 +771,8 @@ export const calculateLineMetrics = (
       .filter(Boolean)
   ).size;
 
-  const { target: shiftTarget, isCoverageActive } = getActiveStaffingTarget(lineId);
-  const target = isCoverageActive
-    ? shiftTarget
-    : (linePos.length > 0 ? linePos.length : (shiftTarget > 0 ? shiftTarget : 6));
+  const targetInfo = getActiveStaffingTarget(lineId, coveragesList);
+  const { target, normalTarget, coverageTarget, isCoverageActive, coverageDetails, curTimeStr, startStr, endStr } = targetInfo;
 
   const coveragePct = target > 0 ? Math.round((distinctScanned / target) * 100) : 0;
   const missingCount = Math.max(0, target - distinctScanned);
@@ -746,9 +782,15 @@ export const calculateLineMetrics = (
   let statusEmoji = '🔴';
 
   if (isCoverageActive) {
-    statusColor = '#3B82F6'; // Blue
-    statusBadgeText = 'COBERTURA DE COMEDOR ACTIVA';
-    statusEmoji = '🔵';
+    if (coveragePct >= 100) {
+      statusColor = '#3B82F6'; // Blue
+      statusBadgeText = 'COBERTURA COMEDOR';
+      statusEmoji = '🔵';
+    } else {
+      statusColor = '#EF4444'; // Red
+      statusBadgeText = 'FALTA PERSONAL';
+      statusEmoji = '🔴';
+    }
   } else if (coveragePct >= 100) {
     statusColor = '#22C55E'; // Green
     statusBadgeText = 'PLANTILLA COMPLETA';
@@ -762,6 +804,8 @@ export const calculateLineMetrics = (
   return {
     lineId,
     target,
+    normalTarget,
+    coverageTarget,
     scannedCount: distinctScanned,
     coveragePct,
     missingCount,
@@ -772,7 +816,11 @@ export const calculateLineMetrics = (
     isCoverageActive,
     totalScansInDb: scansList.length,
     validScansTodayShift: lineScans.length,
-    todayLocalStr
+    todayLocalStr,
+    coverageDetails,
+    curTimeStr,
+    startStr,
+    endStr
   };
 };
 

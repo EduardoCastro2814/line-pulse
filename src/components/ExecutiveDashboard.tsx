@@ -25,6 +25,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
   // Filtering states for left list
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedArea, setSelectedArea] = useState('ALL');
+  const [_tick, setTick] = useState(0);
 
   // Selected Line State for Integrated Configuration Mode
   const [selectedLineId, setSelectedLineId] = useState<string | null>(null);
@@ -573,8 +574,19 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
   ));
   const yMaxIntegration = Math.ceil((maxIntegrationValue * 1.2) / 10) * 10;
 
+  // Interval ticker for real-time coverage transitions
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTick(t => t + 1);
+    }, 15000);
+    return () => clearInterval(interval);
+  }, []);
+
   const selectedLine = lines.find(l => l.id === selectedLineId);
   const activeCoverages = coverages.filter(c => c.line_id === selectedLineId);
+
+  const sampleLine = lines[0];
+  const sampleMetrics = sampleLine ? calculateLineMetrics(sampleLine.id, posiciones, scans, coverages) : null;
 
   return (
     <div className="bg-[#F5F7FA] text-slate-800 flex-grow h-full flex flex-col overflow-hidden p-4 space-y-4 font-sans select-none">
@@ -1622,15 +1634,16 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
         </div>
       )}
 
-      {/* CINTA DE DEPURACIÓN EN VIVO (TEMPORAL) */}
-      <div className="bg-slate-900 text-slate-300 text-[10px] font-mono px-4 py-1.5 flex items-center justify-between border-t border-slate-700 shrink-0 rounded-xl">
-        <div className="flex items-center gap-4">
-          <span>📅 <strong>Fecha Detectada:</strong> <span className="text-emerald-400">{getLocalDateString(new Date())}</span></span>
-          <span>⏱️ <strong>Turno Detectado:</strong> <span className="text-emerald-400">{lines[0] ? getCurrentShift(lines[0], new Date()).shiftName : 'Turno 1'}</span></span>
+      {/* CINTA DE DEPURACIÓN EN VIVO (TEMPORAL COBERTURAS) */}
+      <div className="bg-slate-900 text-slate-300 text-[10px] font-mono px-4 py-1.5 flex items-center justify-between border-t border-slate-700 shrink-0 rounded-xl flex-wrap gap-2">
+        <div className="flex items-center gap-3">
+          <span>🕒 <strong>Hora:</strong> <span className="text-emerald-400">{sampleMetrics?.curTimeStr || new Date().toLocaleTimeString('es-MX')}</span></span>
+          <span>📅 <strong>Fecha:</strong> <span className="text-emerald-400">{getLocalDateString(new Date())}</span></span>
+          <span>⏱️ <strong>Turno:</strong> <span className="text-emerald-400">{lines[0] ? getCurrentShift(lines[0], new Date()).shiftName : 'Turno 1'}</span></span>
         </div>
-        <div className="flex items-center gap-4">
-          <span>🔍 <strong>Total BD:</strong> <span className="text-amber-400">{scans.length} escaneos</span></span>
-          <span>✅ <strong>Modo:</strong> <span className="text-emerald-400">Fuente Única de Verdad (Hoy + Turno)</span></span>
+        <div className="flex items-center gap-3">
+          <span>🍽️ <strong>Cobertura Activa:</strong> <span className={sampleMetrics?.isCoverageActive ? "text-blue-400 font-bold" : "text-slate-400"}>{sampleMetrics?.isCoverageActive ? `SÍ (${sampleMetrics?.startStr} - ${sampleMetrics?.endStr})` : 'NO'}</span></span>
+          <span>👥 <strong>Normal / Cobertura / KPI:</strong> <span className="text-amber-400">{sampleMetrics?.normalTarget ?? 6} / {sampleMetrics?.coverageTarget ?? 0} / <strong className="text-emerald-400">{sampleMetrics?.target ?? 6}</strong></span></span>
         </div>
       </div>
 
