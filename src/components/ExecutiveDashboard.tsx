@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { supabase, getActiveStaffingTarget, DEFAULT_SMT_LAYOUT, mapScanFromSupabase, calculateLineMetrics, getLineIntegrationTimeMinutes, getCurrentShift } from '../lib/supabaseClient';
+import { supabase, getActiveStaffingTarget, DEFAULT_SMT_LAYOUT, mapScanFromSupabase, calculateLineMetrics, getLineIntegrationTimeMinutes, getCurrentShift, getLocalDateString } from '../lib/supabaseClient';
 import { 
   Users, AlertTriangle, Clock, Percent, Search, Settings, ExternalLink, 
   BarChart2, Layers, Save, Upload, Plus, X, CheckCircle2
@@ -488,11 +488,11 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
   });
 
   // Chart Data Preparation (100% REAL DATA FROM SUPABASE)
-  const todayISO = new Date().toISOString().split('T')[0];
+  const todayLocalStr = getLocalDateString(new Date());
 
   // 1. TIEMPO MUERTO POR LÍNEA (Real Bar Chart data from Supabase tiempos_muertos)
   const chartDowntimeData = lines.map((l: any) => {
-    const lineDts = downtimes.filter((d: any) => d.line_id === l.id && (d.date === todayISO || !d.date));
+    const lineDts = downtimes.filter((d: any) => d.line_id === l.id && (d.date === todayLocalStr || !d.date));
     const sumMin = lineDts.reduce((acc: number, d: any) => acc + (d.resolved ? (Number(d.duration_minutes) || 0) : getActiveDowntimeMinutes(l.id)), 0);
     return {
       name: l.name,
@@ -1259,7 +1259,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                           {scans.filter((s: any) => {
                             if (s.line_id !== selectedLineId) return false;
                             const scanDate = new Date(s.scan_time || s.created_at || s.event_time || 0);
-                            return scanDate.toISOString().split('T')[0] === todayISO;
+                            return getLocalDateString(scanDate) === todayLocalStr;
                           }).length} registros hoy
                         </span>
                       </div>
@@ -1281,7 +1281,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                               .filter((s: any) => {
                                 if (s.line_id !== selectedLineId) return false;
                                 const scanDate = new Date(s.scan_time || s.created_at || s.event_time || 0);
-                                return scanDate.toISOString().split('T')[0] === todayISO;
+                                return getLocalDateString(scanDate) === todayLocalStr;
                               })
                               .sort((a: any, b: any) => new Date(b.scan_time || b.created_at || b.event_time || 0).getTime() - new Date(a.scan_time || a.created_at || a.event_time || 0).getTime());
 
@@ -1602,6 +1602,18 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
           </div>
         </div>
       )}
+
+      {/* CINTA DE DEPURACIÓN EN VIVO (TEMPORAL) */}
+      <div className="bg-slate-900 text-slate-300 text-[10px] font-mono px-4 py-1.5 flex items-center justify-between border-t border-slate-700 shrink-0 rounded-xl">
+        <div className="flex items-center gap-4">
+          <span>📅 <strong>Fecha Detectada:</strong> <span className="text-emerald-400">{getLocalDateString(new Date())}</span></span>
+          <span>⏱️ <strong>Turno Detectado:</strong> <span className="text-emerald-400">{lines[0] ? getCurrentShift(lines[0], new Date()).shiftName : 'Turno 1'}</span></span>
+        </div>
+        <div className="flex items-center gap-4">
+          <span>🔍 <strong>Total BD:</strong> <span className="text-amber-400">{scans.length} escaneos</span></span>
+          <span>✅ <strong>Modo:</strong> <span className="text-emerald-400">Fuente Única de Verdad (Hoy + Turno)</span></span>
+        </div>
+      </div>
 
     </div>
   );

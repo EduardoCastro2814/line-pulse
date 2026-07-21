@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { supabase, calculateLineMetrics, mapScanFromSupabase, getDonutColor, getLineIntegrationTimeMinutes } from '../lib/supabaseClient';
+import { supabase, calculateLineMetrics, mapScanFromSupabase, getDonutColor, getLineIntegrationTimeMinutes, getLocalDateString, getCurrentShift } from '../lib/supabaseClient';
 import { Clock, Maximize, Minimize, LayoutDashboard } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
@@ -253,6 +253,18 @@ export const TvDashboard: React.FC = () => {
           })}
         </div>
       </main>
+
+      {/* CINTA DE DEPURACIÓN EN VIVO (TEMPORAL) */}
+      <footer className="bg-slate-900 text-slate-300 text-[10px] font-mono px-6 py-1.5 flex items-center justify-between border-t border-slate-700 shrink-0 z-30">
+        <div className="flex items-center gap-4">
+          <span>📅 <strong>Fecha Detectada:</strong> <span className="text-emerald-400">{getLocalDateString(new Date())}</span></span>
+          <span>⏱️ <strong>Turno Detectado:</strong> <span className="text-emerald-400">{lines[0] ? getCurrentShift(lines[0], new Date()).shiftName : 'Turno 1'}</span></span>
+        </div>
+        <div className="flex items-center gap-4">
+          <span>🔍 <strong>Escaneos en BD:</strong> <span className="text-amber-400">{scans.length}</span></span>
+          <span>✅ <strong>Filtro:</strong> <span className="text-emerald-400">Estricto Hoy + Turno Activo</span></span>
+        </div>
+      </footer>
 
     </div>
   );

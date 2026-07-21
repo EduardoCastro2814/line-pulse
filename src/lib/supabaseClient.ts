@@ -527,6 +527,16 @@ export const recalculateLineState = (lineId: string) => {
 };
 
 // Helper to determine active staffing target for a line at the current time
+// Helper for strict local date string (YYYY-MM-DD in user's local timezone)
+export function getLocalDateString(dateInput?: Date | string | number): string {
+  const d = dateInput ? new Date(dateInput) : new Date();
+  if (isNaN(d.getTime())) return '';
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 // Canonical Global Single Source of Truth for Active Shift Determination
 export function getCurrentShift(line: any, dateObj: Date = new Date(), toleranceMinutes: number = 15): {
   shiftName: string;
@@ -591,17 +601,24 @@ export function getDonutColor(pct: number): string {
 export function getLineIntegrationTimeMinutes(line: any, scansList: any[]): number {
   if (!line) return 0;
   const now = new Date();
+  const todayLocalStr = getLocalDateString(now);
   const shiftInfo = getCurrentShift(line, now, 15);
 
   const sStartStr = shiftInfo.startTimeStr || '06:00:00';
   const [sHour, sMin] = sStartStr.split(':').map(Number);
   const shiftStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), sHour || 0, sMin || 0, 0);
 
-  const todayStr = now.toISOString().split('T')[0];
   const activeScans = scansList.filter((s: any) => {
     if (s.line_id !== line.id || s.was_successful === false) return false;
     const scanDate = new Date(s.event_time || s.scan_time || s.created_at || Date.now());
-    return scanDate.toISOString().split('T')[0] === todayStr && (s.shift === shiftInfo.shiftName || getCurrentShift(line, scanDate, 15).shiftName === shiftInfo.shiftName);
+    if (isNaN(scanDate.getTime())) return false;
+
+    if (getLocalDateString(scanDate) !== todayLocalStr) return false;
+
+    if (s.shift) {
+      return s.shift === shiftInfo.shiftName;
+    }
+    return getCurrentShift(line, scanDate, 15).shiftName === shiftInfo.shiftName;
   });
 
   if (activeScans.length === 0) {
@@ -665,17 +682,19 @@ export const calculateLineMetrics = (
   const line = lineas.find((l: any) => l.id === lineId);
 
   const now = new Date();
-  const todayDateStr = now.toISOString().split('T')[0];
+  const todayLocalStr = getLocalDateString(now);
   const shiftInfo = getShiftForTime(line, now, 15);
   const activeShiftName = shiftInfo.shiftName;
 
-  // Filter lineScans made TODAY and associated with the active shift (automatic shift reset logic)
+  // Filter lineScans made TODAY (Local Date) and associated with the ACTIVE SHIFT
   const lineScans = scansList.filter((s: any) => {
     if (s.line_id !== lineId || s.was_successful === false) return false;
 
     const scanDate = new Date(s.event_time || s.scan_time || s.created_at || Date.now());
-    const isToday = scanDate.toISOString().split('T')[0] === todayDateStr;
-    if (!isToday) return false;
+    if (isNaN(scanDate.getTime())) return false;
+
+    const scanLocalDateStr = getLocalDateString(scanDate);
+    if (scanLocalDateStr !== todayLocalStr) return false;
 
     if (s.shift) {
       return s.shift === activeShiftName;
@@ -718,6 +737,7 @@ export const calculateLineMetrics = (
   }
 
   return {
+    lineId,
     target,
     scannedCount: distinctScanned,
     coveragePct,
@@ -725,8 +745,11 @@ export const calculateLineMetrics = (
     statusColor,
     statusBadgeText,
     statusEmoji,
+    activeShiftName,
     isCoverageActive,
-    activeShiftName
+    totalScansInDb: scansList.length,
+    validScansTodayShift: lineScans.length,
+    todayLocalStr
   };
 };
 

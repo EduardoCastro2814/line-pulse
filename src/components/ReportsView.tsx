@@ -2,15 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { 
   FileText, Download, Calendar, Filter, Printer, Table, Trash2, RefreshCw, Clock
 } from 'lucide-react';
-import { supabase, getLineIntegrationTimeMinutes, calculateLineMetrics } from '../lib/supabaseClient';
+import { supabase, getLineIntegrationTimeMinutes, calculateLineMetrics, getLocalDateString, getCurrentShift } from '../lib/supabaseClient';
 
 export const ReportsView: React.FC = () => {
   const [selectedReportType, setSelectedReportType] = useState<'scans' | 'downtime'>('scans');
   
-  // Filters state
+  // Filters state with strict local date (YYYY-MM-DD)
   const [dateRange, setDateRange] = useState({
-    start: new Date().toISOString().split('T')[0],
-    end: new Date().toISOString().split('T')[0]
+    start: getLocalDateString(new Date()),
+    end: getLocalDateString(new Date())
   });
   const [selectedLine, setSelectedLine] = useState('ALL');
   const [selectedArea, setSelectedArea] = useState('ALL');
@@ -26,7 +26,7 @@ export const ReportsView: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
 
-  // Load all foundational data
+  // Load all foundational data directly from Supabase (No caching)
   const loadReportData = async () => {
     setLoading(true);
     try {
@@ -71,13 +71,13 @@ export const ReportsView: React.FC = () => {
     }
   ];
 
-  // Helper filter scans
+  // Helper filter scans using local date strings and shift calculation
   const getFilteredScans = () => {
     return scans.filter(s => {
-      // Date filter
+      // Date filter (Local Date YYYY-MM-DD)
       const scanDate = new Date(s.scan_time || s.created_at || s.event_time || 0);
       if (isNaN(scanDate.getTime())) return false;
-      const dateIso = scanDate.toISOString().split('T')[0];
+      const dateIso = getLocalDateString(scanDate);
       if (dateIso < dateRange.start || dateIso > dateRange.end) return false;
 
       // Line filter
@@ -91,43 +91,77 @@ export const ReportsView: React.FC = () => {
 
       // Shift filter
       if (selectedShift !== 'ALL') {
-        const scanShift = s.shift || '';
-        if (!scanShift.toLowerCase().includes(selectedShift.toLowerCase())) return false;
+        const lineObj = lines.find(l => l.id === s.line_id);
+        const scanShift = s.shift || (lineObj ? getCurrentShift(lineObj, scanDate).shiftName : 'Turno 1');
+        if (scanShift !== selectedShift) return false;
       }
 
       return true;
     });
   };
 
-  // Helper filter downtime rows per line
+  // Helper filter downtime rows per downtime event or line
   const getFilteredDowntimeRows = () => {
-    return lines.filter(line => {
-      if (selectedLine !== 'ALL' && line.id !== selectedLine) return false;
-      if (selectedArea !== 'ALL' && line.area_id !== selectedArea) return false;
-      return true;
-    }).map(line => {
-      const lineDts = downtimes.filter(d => {
-        if (d.line_id !== line.id) return false;
-        if (d.date < dateRange.start || d.date > dateRange.end) return false;
-        return true;
-      });
+    const rows: any[] = [];
 
-      const totalDowntimeMin = lineDts.reduce((sum, d) => sum + (d.duration_minutes || 0), 0);
+    downtimes.forEach(d => {
+      const line = lines.find(l => l.id === d.line_id);
+      if (!line) return;
+
+      // Line filter
+      if (selectedLine !== 'ALL' && line.id !== selectedLine) return;
+
+      // Area filter
+      if (selectedArea !== 'ALL' && line.area_id !== selectedArea) return;
+
+      // Date filter
+      const dDateStr = d.date || (d.start_time ? getLocalDateString(new Date(d.start_time)) : '');
+      if (dDateStr && (dDateStr < dateRange.start || dDateStr > dateRange.end)) return;
+
+      // Shift filter
+      const dShift = d.start_time ? getCurrentShift(line, new Date(d.start_time)).shiftName : 'Turno 1';
+      if (selectedShift !== 'ALL' && dShift !== selectedShift) return;
+
       const integrationMin = getLineIntegrationTimeMinutes(line, scans);
-      const metrics = calculateLineMetrics(line.id, posiciones, scans, coverages);
+      const dtMin = d.resolved ? (Number(d.duration_minutes) || 0) : Math.max(1, Math.floor((new Date().getTime() - new Date(d.start_time).getTime()) / 60000));
 
-      return {
+      rows.push({
+        id: d.id,
         lineId: line.id,
         lineName: line.name,
         areaName: areas.find(a => a.id === line.area_id)?.name || 'SMT',
-        shiftName: selectedShift !== 'ALL' ? selectedShift : 'Turno Activo',
-        downtimeMin: totalDowntimeMin,
+        date: dDateStr || dateRange.start,
+        shiftName: dShift,
+        downtimeMin: dtMin,
         integrationMin: integrationMin,
-        coveragePct: metrics.coveragePct,
-        target: metrics.target,
-        scannedCount: metrics.scannedCount
-      };
+        resolved: d.resolved
+      });
     });
+
+    // Fallback row per line if no downtime events exist in range
+    if (rows.length === 0) {
+      lines.forEach(line => {
+        if (selectedLine !== 'ALL' && line.id !== selectedLine) return;
+        if (selectedArea !== 'ALL' && line.area_id !== selectedArea) return;
+
+        const metrics = calculateLineMetrics(line.id, posiciones, scans, coverages);
+        const integrationMin = getLineIntegrationTimeMinutes(line, scans);
+
+        rows.push({
+          id: `summary-${line.id}`,
+          lineId: line.id,
+          lineName: line.name,
+          areaName: areas.find(a => a.id === line.area_id)?.name || 'SMT',
+          date: dateRange.start,
+          shiftName: selectedShift !== 'ALL' ? selectedShift : metrics.activeShiftName,
+          downtimeMin: 0,
+          integrationMin: integrationMin,
+          resolved: true
+        });
+      });
+    }
+
+    return rows;
   };
 
   // Single record deletion
@@ -166,7 +200,7 @@ export const ReportsView: React.FC = () => {
     }
   };
 
-  // CSV Export for Scans & Attendance
+  // CSV Export for Scans & Attendance (Guaranteed exact match with UI table)
   const exportScansCSV = () => {
     const filtered = getFilteredScans();
     if (filtered.length === 0) {
@@ -177,15 +211,18 @@ export const ReportsView: React.FC = () => {
     const headers = ['Número empleado', 'Línea', 'Fecha', 'Hora', 'Turno', 'Tipo Evento'];
     const rows = filtered.map(s => {
       const dt = new Date(s.scan_time || s.created_at || s.event_time);
-      const dateStr = !isNaN(dt.getTime()) ? dt.toISOString().split('T')[0] : '';
+      const dateStr = !isNaN(dt.getTime()) ? getLocalDateString(dt) : '';
       const timeStr = !isNaN(dt.getTime()) ? dt.toLocaleTimeString('es-MX', { hour12: false }) : '';
-      const lineName = s.lineas?.name || lines.find(l => l.id === s.line_id)?.name || 'N/A';
+      const lineObj = lines.find(l => l.id === s.line_id);
+      const lineName = s.lineas?.name || lineObj?.name || 'N/A';
+      const scanShift = s.shift || (lineObj ? getCurrentShift(lineObj, dt).shiftName : 'Turno 1');
+
       return [
         `"${s.employee_number || s.badge_id || ''}"`,
         `"${lineName}"`,
         `"${dateStr}"`,
         `"${timeStr}"`,
-        `"${s.shift || 'Turno 1'}"`,
+        `"${scanShift}"`,
         `"${s.event_type || 'TURN_START'}"`
       ];
     });
@@ -200,7 +237,7 @@ export const ReportsView: React.FC = () => {
     document.body.removeChild(link);
   };
 
-  // CSV Export for Downtime
+  // CSV Export for Downtime (Guaranteed exact match with UI table)
   const exportDowntimeCSV = () => {
     const rowsData = getFilteredDowntimeRows();
     if (rowsData.length === 0) {
@@ -208,16 +245,15 @@ export const ReportsView: React.FC = () => {
       return;
     }
 
-    const headers = ['Línea', 'Área', 'Turno', 'Tiempo Muerto (min)', 'Tiempo Integración (min)', 'Cobertura Final %', 'Plantilla Requerida', 'Escaneados'];
+    const headers = ['Línea', 'Área', 'Fecha', 'Turno', 'Tiempo Integración (min)', 'Tiempo Muerto (min)', 'Estado'];
     const rows = rowsData.map(r => [
       `"${r.lineName}"`,
       `"${r.areaName}"`,
+      `"${r.date}"`,
       `"${r.shiftName}"`,
-      r.downtimeMin,
       r.integrationMin,
-      `"${r.coveragePct}%"`,
-      r.target,
-      r.scannedCount
+      r.downtimeMin,
+      `"${r.resolved ? 'RESUELTO' : 'EN CURSO'}"`
     ]);
 
     const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
@@ -440,10 +476,11 @@ export const ReportsView: React.FC = () => {
                   filteredScansList.map((scan) => {
                     const dt = new Date(scan.scan_time || scan.created_at || scan.event_time);
                     const isValid = !isNaN(dt.getTime());
-                    const dateStr = isValid ? dt.toISOString().split('T')[0] : scan.scan_date || 'N/A';
+                    const dateStr = isValid ? getLocalDateString(dt) : scan.scan_date || 'N/A';
                     const timeStr = isValid ? dt.toLocaleTimeString('es-MX', { hour12: false }) : scan.scan_time || 'N/A';
                     const lineObj = lines.find(l => l.id === scan.line_id);
                     const areaObj = areas.find(a => a.id === (scan.lineas?.area_id || lineObj?.area_id));
+                    const scanShift = scan.shift || (lineObj && isValid ? getCurrentShift(lineObj, dt).shiftName : 'Turno 1');
 
                     return (
                       <tr key={scan.id} className="hover:bg-[#F5F7FA] transition-colors">
@@ -452,7 +489,7 @@ export const ReportsView: React.FC = () => {
                         </td>
                         <td className="py-2.5 px-4 text-slate-700">{dateStr}</td>
                         <td className="py-2.5 px-4 text-slate-900 font-bold">{timeStr}</td>
-                        <td className="py-2.5 px-4 text-slate-700 font-sans font-bold">{scan.shift || 'Turno 1'}</td>
+                        <td className="py-2.5 px-4 text-slate-700 font-sans font-bold">{scanShift}</td>
                         <td className="py-2.5 px-4 font-sans font-black text-slate-900">{scan.lineas?.name || lineObj?.name || 'N/A'}</td>
                         <td className="py-2.5 px-4 font-sans text-slate-600 font-bold">{areaObj?.name || 'SMT'}</td>
                         <td className="py-2.5 px-4 font-sans">
@@ -481,42 +518,40 @@ export const ReportsView: React.FC = () => {
 
           ) : (
 
-            /* TABLA 2: REPORTE DE DOWNTIME */
+            /* TABLA 2: REPORTE DE DOWNTIME HISTÓRICO */
             <table className="w-full text-left border-collapse text-xs">
               <thead className="bg-[#F5F7FA] border-b border-[#DCE3EA] sticky top-0 z-10 text-[10px] font-black uppercase text-slate-600 tracking-wider">
                 <tr>
                   <th className="py-2.5 px-4">Línea</th>
                   <th className="py-2.5 px-4">Área</th>
+                  <th className="py-2.5 px-4">Fecha</th>
                   <th className="py-2.5 px-4">Turno</th>
-                  <th className="py-2.5 px-4">Tiempo Muerto (min)</th>
                   <th className="py-2.5 px-4">Tiempo Integración (min)</th>
-                  <th className="py-2.5 px-4">Cobertura Final</th>
-                  <th className="py-2.5 px-4">Plantilla Requerida</th>
-                  <th className="py-2.5 px-4">Escaneados Presentes</th>
+                  <th className="py-2.5 px-4">Tiempo Muerto (min)</th>
+                  <th className="py-2.5 px-4">Estado</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#DCE3EA] font-mono">
                 {filteredDowntimeList.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="py-12 text-center text-slate-400 font-sans font-semibold">
-                      No hay líneas configuradas o datos disponibles para los filtros seleccionados.
+                    <td colSpan={7} className="py-12 text-center text-slate-400 font-sans font-semibold">
+                      No hay datos de downtime disponibles para los filtros seleccionados.
                     </td>
                   </tr>
                 ) : (
                   filteredDowntimeList.map((row) => (
-                    <tr key={row.lineId} className="hover:bg-[#F5F7FA] transition-colors">
+                    <tr key={row.id} className="hover:bg-[#F5F7FA] transition-colors">
                       <td className="py-3 px-4 font-sans font-black text-slate-900">{row.lineName}</td>
                       <td className="py-3 px-4 font-sans text-slate-600 font-bold">{row.areaName}</td>
+                      <td className="py-3 px-4 font-mono text-slate-700">{row.date}</td>
                       <td className="py-3 px-4 font-sans text-slate-700 font-bold">{row.shiftName}</td>
-                      <td className="py-3 px-4 text-amber-600 font-bold">{row.downtimeMin} min</td>
                       <td className="py-3 px-4 text-emerald-600 font-bold">{row.integrationMin} min</td>
+                      <td className="py-3 px-4 text-amber-600 font-bold">{row.downtimeMin} min</td>
                       <td className="py-3 px-4">
-                        <span className={`font-bold ${row.coveragePct >= 100 ? 'text-emerald-600' : row.coveragePct >= 50 ? 'text-amber-600' : 'text-red-600'}`}>
-                          {row.coveragePct}%
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase ${row.resolved ? 'bg-slate-100 text-slate-600' : 'bg-amber-100 text-amber-800 border border-amber-300 animate-pulse'}`}>
+                          {row.resolved ? 'RESUELTO' : 'EN CURSO'}
                         </span>
                       </td>
-                      <td className="py-3 px-4 text-slate-900 font-bold">{row.target} op</td>
-                      <td className="py-3 px-4 text-[#005486] font-bold">{row.scannedCount} op</td>
                     </tr>
                   ))
                 )}

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { supabase, getActiveStaffingTarget, DEFAULT_SMT_LAYOUT, validateAndMapScanInsert, mapScanFromSupabase, calculateLineMetrics } from '../lib/supabaseClient';
+import { supabase, getActiveStaffingTarget, DEFAULT_SMT_LAYOUT, validateAndMapScanInsert, mapScanFromSupabase, calculateLineMetrics, getLocalDateString, getCurrentShift } from '../lib/supabaseClient';
 import { Clock, QrCode, Maximize, Minimize, CheckCircle2, AlertTriangle, ArrowLeft } from 'lucide-react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 
@@ -223,12 +223,25 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
       ? shiftTarget 
       : (configuredPositionsCount > 0 ? configuredPositionsCount : (shiftTarget > 0 ? shiftTarget : 6));
 
-    // Current scanned list of distinct numbers for this line from FRESH REF (Single Source of Truth)
-    const activeScans = escaneosRef.current;
+    const now = new Date();
+    const todayLocalStr = getLocalDateString(now);
+    const shiftInfo = getCurrentShift(line, now, 15);
+    const activeShiftName = shiftInfo.shiftName;
+
+    // Filter activeScans to ONLY include scans made TODAY in the ACTIVE SHIFT
+    const todayShiftScans = escaneosRef.current.filter((s: any) => {
+      if (s.line_id !== lineId || s.was_successful === false) return false;
+      const scanDate = new Date(s.event_time || s.scan_time || s.created_at || Date.now());
+      if (isNaN(scanDate.getTime())) return false;
+
+      if (getLocalDateString(scanDate) !== todayLocalStr) return false;
+      if (s.shift) return s.shift === activeShiftName;
+      return getCurrentShift(line, scanDate, 15).shiftName === activeShiftName;
+    });
+
     const currentScannedList = Array.from(
       new Set(
-        activeScans
-          .filter(s => s.line_id === lineId && s.was_successful !== false)
+        todayShiftScans
           .map(s => (s.employee_number || s.badge_id || '').trim())
           .filter(Boolean)
       )
@@ -236,14 +249,15 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
 
     console.log('[DEBUG MONITOR KPIS PRE-INSERT]:', {
       lineId,
-      configuredPositionsCount,
+      todayLocalStr,
+      activeShiftName,
       target,
       scannedCount: currentScannedList.length,
       currentScannedList,
       attemptedNumber: cleanNum
     });
 
-    // REGLA 4: No Duplicates in Same Shift
+    // REGLA 4: No Duplicates in Same Day + Same Shift
     if (currentScannedList.includes(cleanNum)) {
       setScanFeedback({
         status: 'error',
@@ -297,7 +311,7 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
     };
 
     // 2. Immediately update local state so UI turns GREEN instantly!
-    const updatedScansList = [...activeScans, newScanRecord];
+    const updatedScansList = [...escaneosRef.current, newScanRecord];
     setEscaneos(updatedScansList);
     escaneosRef.current = updatedScansList;
 
@@ -696,6 +710,18 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
         </div>
 
       </footer>
+
+      {/* CINTA DE DEPURACIÓN EN VIVO (TEMPORAL) */}
+      <div className="bg-slate-900 text-slate-300 text-[10px] font-mono px-6 py-1.5 flex items-center justify-between border-t border-slate-700 shrink-0 z-30">
+        <div className="flex items-center gap-4">
+          <span>📅 <strong>Fecha Detectada:</strong> <span className="text-emerald-400">{metrics.todayLocalStr}</span></span>
+          <span>⏱️ <strong>Turno Detectado:</strong> <span className="text-emerald-400">{activeShiftName}</span></span>
+        </div>
+        <div className="flex items-center gap-4">
+          <span>🔍 <strong>Escaneos en BD:</strong> <span className="text-amber-400">{metrics.totalScansInDb}</span></span>
+          <span>✅ <strong>Escaneos Usados KPI (Hoy+Turno):</strong> <span className="text-emerald-400">{metrics.validScansTodayShift}</span></span>
+        </div>
+      </div>
 
     </div>
   );
