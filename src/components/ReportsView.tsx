@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   FileText, Download, Calendar, Filter, Printer, Table, Trash2, RefreshCw, Clock
 } from 'lucide-react';
-import { supabase, getLineIntegrationTimeMinutes, calculateLineMetrics, getLocalDateString, getCurrentShift } from '../lib/supabaseClient';
+import { supabase, getLineIntegrationTimeMinutes, calculateLineMetrics, getLocalDateString, getCurrentShift, mapScanFromSupabase, getLineDowntimeMinutes } from '../lib/supabaseClient';
 
 export const ReportsView: React.FC = () => {
   const [selectedReportType, setSelectedReportType] = useState<'scans' | 'downtime'>('scans');
@@ -26,22 +26,25 @@ export const ReportsView: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
 
-  // Load all foundational data directly from Supabase (No caching)
+  // Load all foundational data directly from Supabase (No caching, using canonical mapping)
   const loadReportData = async () => {
     setLoading(true);
     try {
       const [resLines, resAreas, resScans, resDowntimes, resPos, resCov] = await Promise.all([
         supabase.from('lineas').select('*').order('name'),
         supabase.from('areas').select('*').order('name'),
-        supabase.from('escaneos').select('*, lineas(id, name, area_id)').order('scan_time', { ascending: false }),
-        supabase.from('tiempos_muertos').select('*, lineas(id, name)').order('start_time', { ascending: false }),
+        supabase.from('escaneos').select('*'),
+        supabase.from('tiempos_muertos').select('*'),
         supabase.from('posiciones').select('*'),
         supabase.from('coberturas').select('*')
       ]);
 
       if (resLines.data) setLines(resLines.data);
       if (resAreas.data) setAreas(resAreas.data);
-      if (resScans.data) setScans(resScans.data);
+      if (resScans.data) {
+        const mappedScans = resScans.data.map(mapScanFromSupabase);
+        setScans(mappedScans);
+      }
       if (resDowntimes.data) setDowntimes(resDowntimes.data);
       if (resPos.data) setPosiciones(resPos.data);
       if (resCov.data) setCoverages(resCov.data);
@@ -154,7 +157,7 @@ export const ReportsView: React.FC = () => {
           areaName: areas.find(a => a.id === line.area_id)?.name || 'SMT',
           date: dateRange.start,
           shiftName: selectedShift !== 'ALL' ? selectedShift : metrics.activeShiftName,
-          downtimeMin: 0,
+          downtimeMin: getLineDowntimeMinutes(line.id, downtimes, dateRange.start),
           integrationMin: integrationMin,
           resolved: true
         });
@@ -360,6 +363,19 @@ export const ReportsView: React.FC = () => {
 
         </div>
 
+      </div>
+
+      {/* CINTA DE DEPURACIÓN EN VIVO (TEMPORAL DE LOGS) */}
+      <div className="bg-slate-900 text-slate-300 text-[10px] font-mono px-4 py-1.5 rounded-xl flex items-center justify-between border border-slate-700 my-2 shrink-0">
+        <div className="flex items-center gap-4 flex-wrap">
+          <span>🔍 <strong>Registros BD Total:</strong> <span className="text-amber-400">{scans.length}</span></span>
+          <span>✅ <strong>Registros Filtrados Usados:</strong> <span className="text-emerald-400">{filteredScansList.length}</span></span>
+        </div>
+        <div className="flex items-center gap-4 flex-wrap">
+          <span>📅 <strong>Rango:</strong> <span className="text-slate-200">{dateRange.start} a {dateRange.end}</span></span>
+          <span>⏱️ <strong>Turno:</strong> <span className="text-slate-200">{selectedShift}</span></span>
+          <span>📍 <strong>Línea:</strong> <span className="text-slate-200">{selectedLine === 'ALL' ? 'Todas' : (lines.find(l => l.id === selectedLine)?.name || selectedLine)}</span></span>
+        </div>
       </div>
 
       {/* 2. REPORT TYPE SELECTION CARDS */}

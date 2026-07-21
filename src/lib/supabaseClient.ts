@@ -638,6 +638,29 @@ export function getLineIntegrationTimeMinutes(line: any, scansList: any[]): numb
   return 0;
 }
 
+// Canonical Helper for Total Line Downtime Minutes (resolved + active for target date or today)
+export function getLineDowntimeMinutes(lineId: string, downtimesList: any[], dateStr?: string): number {
+  if (!lineId || !downtimesList) return 0;
+  const targetDate = dateStr || getLocalDateString(new Date());
+
+  const lineDts = downtimesList.filter((d: any) => {
+    if (d.line_id !== lineId) return false;
+    const dDate = d.date || (d.start_time ? getLocalDateString(new Date(d.start_time)) : '');
+    return !dDate || dDate === targetDate;
+  });
+
+  return lineDts.reduce((sum: number, d: any) => {
+    if (d.resolved) {
+      return sum + (Number(d.duration_minutes) || 0);
+    } else {
+      const startMs = new Date(d.start_time).getTime();
+      const nowMs = new Date().getTime();
+      const activeMin = !isNaN(startMs) ? Math.max(1, Math.floor((nowMs - startMs) / 60000)) : 0;
+      return sum + activeMin;
+    }
+  }, 0);
+}
+
 // Helper to determine active staffing target for a line at the current time
 export const getActiveStaffingTarget = (lineId: string): { target: number; isCoverageActive: boolean; coverageDetails?: any; activeShiftName: string } => {
   const line = loadTable('lineas').find(l => l.id === lineId);

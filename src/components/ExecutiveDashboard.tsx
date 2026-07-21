@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { supabase, getActiveStaffingTarget, DEFAULT_SMT_LAYOUT, mapScanFromSupabase, calculateLineMetrics, getLineIntegrationTimeMinutes, getCurrentShift, getLocalDateString } from '../lib/supabaseClient';
+import { supabase, getActiveStaffingTarget, DEFAULT_SMT_LAYOUT, mapScanFromSupabase, calculateLineMetrics, getLineIntegrationTimeMinutes, getCurrentShift, getLocalDateString, getLineDowntimeMinutes } from '../lib/supabaseClient';
 import { 
   Users, AlertTriangle, Clock, Percent, Search, Settings, ExternalLink, 
   BarChart2, Layers, Save, Upload, Plus, X, CheckCircle2
@@ -180,14 +180,6 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
   const showFeedback = (type: 'success' | 'error', text: string) => {
     setFeedbackMsg({ type, text });
     setTimeout(() => setFeedbackMsg({ type: null, text: '' }), 3000);
-  };
-
-  // Helper active downtime minutes
-  const getActiveDowntimeMinutes = (lineId: string) => {
-    const activeDt = downtimes.find((dt: any) => dt.line_id === lineId && !dt.resolved);
-    if (!activeDt) return 0;
-    const elapsedMs = new Date().getTime() - new Date(activeDt.start_time).getTime();
-    return Math.max(0, Math.floor(elapsedMs / 60000));
   };
 
   // Line selection action -> Open Integrated Line Configurator in right panel
@@ -490,17 +482,16 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
   // Chart Data Preparation (100% REAL DATA FROM SUPABASE)
   const todayLocalStr = getLocalDateString(new Date());
 
-  // 1. TIEMPO MUERTO POR LÍNEA (Real Bar Chart data from Supabase tiempos_muertos)
+  // 1. TIEMPO MUERTO POR LÍNEA (Real Bar Chart data using canonical getLineDowntimeMinutes)
   const chartDowntimeData = lines.map((l: any) => {
-    const lineDts = downtimes.filter((d: any) => d.line_id === l.id && (d.date === todayLocalStr || !d.date));
-    const sumMin = lineDts.reduce((acc: number, d: any) => acc + (d.resolved ? (Number(d.duration_minutes) || 0) : getActiveDowntimeMinutes(l.id)), 0);
+    const sumMin = getLineDowntimeMinutes(l.id, downtimes, todayLocalStr);
     return {
       name: l.name,
       minutos: sumMin
     };
   });
 
-  // 2. TIEMPO DE INTEGRACIÓN (Real Line Chart data calculated over time slots 14:00, 14:10, 14:20...)
+  // 2. TIEMPO DE INTEGRACIÓN (Real Line Chart data calculated over 15-minute time slots: 06:00, 06:15, 06:30, 06:45, 07:00...)
   const generateIntegrationTimeline = () => {
     if (!lines || lines.length === 0) return { chartData: [], lineColors: [] };
     
@@ -511,8 +502,8 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
     const [startH, startM] = startStr.split(':').map(Number);
     
     const slots: { label: string; timestampMs: number }[] = [];
-    for (let i = 0; i <= 6; i++) {
-      const slotMinTotal = (startH * 60 + startM) + (i * 10);
+    for (let i = 0; i <= 8; i++) {
+      const slotMinTotal = (startH * 60 + startM) + (i * 15);
       const h = Math.floor(slotMinTotal / 60) % 24;
       const m = slotMinTotal % 60;
       const timeLabel = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
