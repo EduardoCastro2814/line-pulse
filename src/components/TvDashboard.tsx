@@ -196,7 +196,7 @@ export const TvDashboard: React.FC = () => {
       <main className="flex-1 min-h-0 p-6 overflow-y-auto">
         <div className="flex flex-wrap gap-5 justify-center items-center h-full">
           {lines.map((line: any) => {
-            const metrics = calculateLineMetrics(line.id, posiciones, scans, coverages);
+            const metrics = calculateLineMetrics(line.id, posiciones, scans, coverages, lines);
             const { 
               target, 
               scannedCount: present, 

@@ -179,6 +179,28 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
     }
   }, [selectedLineId, lines]);
 
+  // Depuración Temporal solicitada
+  useEffect(() => {
+    if (selectedLineId && lines.length > 0) {
+      const line = lines.find(l => l.id === selectedLineId);
+      if (line) {
+        const targetInfo = getActiveStaffingTarget(selectedLineId, coverages, lines);
+        const linePos = posiciones.filter(p => p.line_id === selectedLineId);
+        const placedPos = linePos.filter(p => p.placed !== false);
+        const unplaced = Array.from({ length: targetInfo.target }, (_, i) => `POS${String(i + 1).padStart(2, '0')}`)
+          .filter(code => !placedPos.some(p => p.code === code));
+
+        console.log('--- LINEPULSE DEPURACIÓN DE SINCRONIZACIÓN ---');
+        console.log('Línea Seleccionada:', line.name);
+        console.log('Turno activo detectado:', targetInfo.activeShiftName);
+        console.log('Plantilla turno activo:', targetInfo.target);
+        console.log('Posiciones encontradas:', linePos.map(p => p.code));
+        console.log('Posiciones pendientes:', unplaced);
+        console.log('----------------------------------------------');
+      }
+    }
+  }, [selectedLineId, lines, posiciones, coverages]);
+
   const showFeedback = (type: 'success' | 'error', text: string) => {
     setFeedbackMsg({ type, text });
     setTimeout(() => setFeedbackMsg({ type: null, text: '' }), 3000);
@@ -381,7 +403,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
 
   const handleSavePositions = async () => {
     if (!selectedLineId) return;
-    const { target: targetCount } = getActiveStaffingTarget(selectedLineId, coverages);
+    const { target: targetCount } = getActiveStaffingTarget(selectedLineId, coverages, lines);
     
     // Filter positions that belong to this line, are placed, and fit within the target count
     const currentLinePositions = posiciones.filter(p => {
@@ -510,7 +532,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
   let totalDowntimeToday = 0;
 
   lines.forEach((line: any) => {
-    const metrics = calculateLineMetrics(line.id, posiciones, scans, coverages);
+    const metrics = calculateLineMetrics(line.id, posiciones, scans, coverages, lines);
     totalRequired += metrics.target;
     totalPresent += metrics.scannedCount;
     totalDowntimeToday += getLineIntegrationTimeMinutes(line, scans);
@@ -632,7 +654,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
   const activeCoverages = coverages.filter(c => c.line_id === selectedLineId);
 
   const sampleLine = lines[0];
-  const sampleMetrics = sampleLine ? calculateLineMetrics(sampleLine.id, posiciones, scans, coverages) : null;
+  const sampleMetrics = sampleLine ? calculateLineMetrics(sampleLine.id, posiciones, scans, coverages, lines) : null;
 
   return (
     <div className="bg-[#F5F7FA] text-slate-800 flex-grow h-full flex flex-col overflow-hidden p-4 space-y-4 font-sans select-none">
@@ -828,7 +850,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                   </tr>
                 ) : (
                   filteredLines.map((line: any) => {
-                    const metrics = calculateLineMetrics(line.id, posiciones, scans, coverages);
+                    const metrics = calculateLineMetrics(line.id, posiciones, scans, coverages, lines);
                     const { target, scannedCount: present, coveragePct: pct, statusEmoji, statusColor, isCoverageActive } = metrics;
                     const integrationMin = getLineIntegrationTimeMinutes(line, scans);
                     const isSelected = selectedLineId === line.id;
@@ -1125,7 +1147,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                 )}
 
                 {configSubTab === 'layout' && (() => {
-                  const targetCount = Math.max(1, getActiveStaffingTarget(selectedLineId || '', coverages).target || (selectedLineId ? (lines.find(l => l.id === selectedLineId)?.shift1_target || 6) : 6));
+                  const targetCount = Math.max(1, getActiveStaffingTarget(selectedLineId || '', coverages, lines).target || (selectedLineId ? (lines.find(l => l.id === selectedLineId)?.shift1_target || 6) : 6));
                   const targetPosCodes = Array.from({ length: targetCount }, (_, i) => `POS${String(i + 1).padStart(2, '0')}`);
                   const currentLinePlacedPos = posiciones.filter(p => {
                     if (p.line_id !== selectedLineId || p.placed === false) return false;
@@ -1487,7 +1509,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                     <div className="h-44 w-full pointer-events-none">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={lines.map(line => {
-                          const m = calculateLineMetrics(line.id, posiciones, scans, coverages);
+                          const m = calculateLineMetrics(line.id, posiciones, scans, coverages, lines);
                           return { name: line.name, cobertura: m.coveragePct };
                         })}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
@@ -1518,7 +1540,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                     <div className="h-44 w-full pointer-events-none">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={lines.map(line => {
-                          const m = calculateLineMetrics(line.id, posiciones, scans, coverages);
+                          const m = calculateLineMetrics(line.id, posiciones, scans, coverages, lines);
                           return { name: line.name, 'Presentes': m.scannedCount, 'Requeridos': m.target };
                         })}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
@@ -1807,7 +1829,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                   <ResponsiveContainer width="100%" height="95%">
                     <BarChart 
                       data={lines.map(line => {
-                        const m = calculateLineMetrics(line.id, posiciones, scans, coverages);
+                        const m = calculateLineMetrics(line.id, posiciones, scans, coverages, lines);
                         return { name: line.name, 'Cobertura %': m.coveragePct };
                       })} 
                       margin={{ top: 20, right: 30, left: 20, bottom: 20 }}
@@ -1826,7 +1848,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                   <ResponsiveContainer width="100%" height="95%">
                     <BarChart 
                       data={lines.map(line => {
-                        const m = calculateLineMetrics(line.id, posiciones, scans, coverages);
+                        const m = calculateLineMetrics(line.id, posiciones, scans, coverages, lines);
                         return { name: line.name, 'Operadores Presentes': m.scannedCount, 'Plantilla Requerida': m.target };
                       })} 
                       margin={{ top: 20, right: 30, left: 20, bottom: 20 }}

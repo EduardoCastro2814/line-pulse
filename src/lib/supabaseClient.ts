@@ -661,10 +661,10 @@ export function getLineDowntimeMinutes(lineId: string, downtimesList: any[], dat
   }, 0);
 }
 
-// Helper to determine active staffing stage, target, and valid scan time window for a line at the current time
 export function getActiveStaffingStageAndWindow(
   lineId: string,
-  coveragesList: any[] = []
+  coveragesList: any[] = [],
+  linesList: any[] = []
 ): {
   stage: 'INICIO_TURNO' | 'COBERTURA_COMEDOR' | 'REGRESO_COMEDOR';
   target: number;
@@ -679,7 +679,7 @@ export function getActiveStaffingStageAndWindow(
   validScanStartMin: number;
   validScanEndMin: number;
 } {
-  const lineas = loadTable('lineas');
+  const lineas = (linesList && linesList.length > 0) ? linesList : loadTable('lineas');
   const line = lineas.find((l: any) => l.id === lineId);
   const now = new Date();
   const shiftInfo = getCurrentShift(line, now, 15);
@@ -787,7 +787,8 @@ export function getActiveStaffingStageAndWindow(
 // Helper to determine active staffing target for a line at the current time
 export const getActiveStaffingTarget = (
   lineId: string,
-  coveragesList: any[] = []
+  coveragesList: any[] = [],
+  linesList: any[] = []
 ): { 
   target: number; 
   normalTarget: number;
@@ -802,7 +803,7 @@ export const getActiveStaffingTarget = (
   validScanStartMin: number;
   validScanEndMin: number;
 } => {
-  return getActiveStaffingStageAndWindow(lineId, coveragesList);
+  return getActiveStaffingStageAndWindow(lineId, coveragesList, linesList);
 };
 
 // Unified KPI & Line Status Calculator for Single Source of Truth with Automatic Shift Reset
@@ -810,14 +811,15 @@ export const calculateLineMetrics = (
   lineId: string,
   _posicionesList: any[],
   scansList: any[],
-  coveragesList: any[] = []
+  coveragesList: any[] = [],
+  linesList: any[] = []
 ) => {
-  const lineas = loadTable('lineas');
+  const lineas = (linesList && linesList.length > 0) ? linesList : loadTable('lineas');
   const line = lineas.find((l: any) => l.id === lineId);
 
   const now = new Date();
   const todayLocalStr = getLocalDateString(now);
-  const targetInfo = getActiveStaffingTarget(lineId, coveragesList);
+  const targetInfo = getActiveStaffingTarget(lineId, coveragesList, lineas);
   const { 
     target, 
     normalTarget, 

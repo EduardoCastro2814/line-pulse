@@ -424,7 +424,7 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
   if (!isOpen || !line) return null;
 
   // Active Staffing Target & Coverage Calculations driven by UNIFIED calculateLineMetrics
-  const metrics = calculateLineMetrics(line.id, posiciones, escaneos, coberturas);
+  const metrics = calculateLineMetrics(line.id, posiciones, escaneos, coberturas, [line]);
   const { 
     target, 
     scannedCount, 
