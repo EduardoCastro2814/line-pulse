@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { supabase, getActiveStaffingTarget, DEFAULT_SMT_LAYOUT, mapScanFromSupabase, calculateLineMetrics, getLineIntegrationTimeMinutes, getCurrentShift, getLocalDateString, getLineDowntimeMinutes } from '../lib/supabaseClient';
 import { 
   Users, AlertTriangle, Clock, Percent, Search, Settings, ExternalLink, 
-  BarChart2, Layers, Save, Upload, Plus, X, CheckCircle2
+  BarChart2, Layers, Save, Upload, Plus, X, CheckCircle2, Edit
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { 
@@ -26,6 +26,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedArea, setSelectedArea] = useState('ALL');
   const [_tick, setTick] = useState(0);
+  const [expandedChart, setExpandedChart] = useState<'downtime' | 'integration' | 'coverage' | 'compliance' | null>(null);
 
   // Selected Line State for Integrated Configuration Mode
   const [selectedLineId, setSelectedLineId] = useState<string | null>(null);
@@ -183,11 +184,6 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
     setTimeout(() => setFeedbackMsg({ type: null, text: '' }), 3000);
   };
 
-  // Line selection action -> Open Integrated Line Configurator in right panel
-  const handleSelectLine = (lineId: string) => {
-    setSelectedLineId(lineId);
-    setRightPanelMode('config');
-  };
 
   // Edit Line Action
   const handleEditLine = (line: any, e?: React.MouseEvent) => {
@@ -613,7 +609,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
     <div className="bg-[#F5F7FA] text-slate-800 flex-grow h-full flex flex-col overflow-hidden p-4 space-y-4 font-sans select-none">
       
       {/* 1. TOP CORPORATE KPI SUMMARY RIBBON */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 shrink-0">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 shrink-0">
         <div className="bg-white border border-[#DCE3EA] p-3 rounded-xl flex items-center justify-between shadow-sm">
           <div>
             <span className="text-[10px] font-bold text-slate-500 tracking-wider uppercase block">Cobertura Global</span>
@@ -656,32 +652,6 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
           <div className="p-2 bg-amber-50 rounded-lg text-amber-600">
             <Clock className="w-4 h-4" />
           </div>
-        </div>
-
-        {/* View Mode Switcher Button */}
-        <div className="col-span-2 md:col-span-1 bg-white border border-[#DCE3EA] p-2 rounded-xl flex items-center justify-center">
-          <button
-            onClick={() => {
-              if (rightPanelMode === 'config') {
-                setRightPanelMode('analytics');
-              } else if (selectedLineId) {
-                setRightPanelMode('config');
-              }
-            }}
-            className="w-full h-full bg-[#005486] hover:bg-[#003f66] text-white font-extrabold px-3 py-1.5 rounded-lg text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer"
-          >
-            {rightPanelMode === 'config' ? (
-              <>
-                <BarChart2 className="w-4 h-4" />
-                <span>Ver Analíticas y Gráficas</span>
-              </>
-            ) : (
-              <>
-                <Settings className="w-4 h-4" />
-                <span>Configurar Línea {selectedLine ? `(${selectedLine.name})` : ''}</span>
-              </>
-            )}
-          </button>
         </div>
       </div>
 
@@ -832,12 +802,15 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                     const metrics = calculateLineMetrics(line.id, posiciones, scans, coverages);
                     const { target, scannedCount: present, coveragePct: pct, statusEmoji, statusColor, isCoverageActive } = metrics;
                     const integrationMin = getLineIntegrationTimeMinutes(line, scans);
-                    const isSelected = selectedLineId === line.id && rightPanelMode === 'config';
+                    const isSelected = selectedLineId === line.id;
 
                   return (
                     <tr
                       key={line.id}
-                      onClick={() => handleSelectLine(line.id)}
+                      onClick={() => {
+                        setSelectedLineId(line.id);
+                        setRightPanelMode('analytics');
+                      }}
                       className={`transition-colors cursor-pointer select-none ${
                         isSelected ? 'bg-[#005486]/10 border-l-4 border-l-[#005486]' : 'hover:bg-[#F5F7FA]'
                       }`}
@@ -846,7 +819,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                       <td className="py-2.5 px-3 font-extrabold text-slate-900">
                         {line.name}
                         {isCoverageActive && (
-                          <span className="ml-1 text-[9px] text-blue-600 bg-blue-50 px-1 rounded">Comedor</span>
+                          <span className="ml-1 text-[9px] text-blue-600 bg-blue-50 px-1 rounded font-bold">Comedor</span>
                         )}
                       </td>
                       <td className="py-2.5 px-3">
@@ -861,9 +834,14 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                       <td className="py-2.5 px-3 text-right">
                         <div className="flex items-center justify-end gap-1">
                           <button
-                            onClick={(e) => handleEditLine(line, e)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedLineId(line.id);
+                              setRightPanelMode('config');
+                              setConfigSubTab('turnos');
+                            }}
                             className="p-1 hover:bg-slate-200 text-slate-700 rounded-md transition-all cursor-pointer"
-                            title="Editar parámetros de la línea"
+                            title="Configurar parámetros de la línea"
                           >
                             <Settings className="w-3.5 h-3.5" />
                           </button>
@@ -908,13 +886,22 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
               </div>
 
               <div className="flex items-center space-x-2">
+                {/* BUTTON: EDITAR PARÁMETROS */}
+                <button
+                  onClick={(e) => handleEditLine(selectedLine, e)}
+                  className="bg-slate-700 hover:bg-slate-600 text-white font-extrabold px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                >
+                  <Edit className="w-3.5 h-3.5" />
+                  <span>Editar Info</span>
+                </button>
+
                 {/* PROMINENT BUTTON: VER MONITOR OPERATIVO */}
                 <button
                   onClick={() => navigate(`/linea/${selectedLine.id}`)}
                   className="bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
                 >
                   <ExternalLink className="w-3.5 h-3.5" />
-                  <span>Ver Monitor Operativo</span>
+                  <span>Ver Monitor</span>
                 </button>
 
                 <button
@@ -1386,7 +1373,10 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   
                   {/* CHART 1: Tiempo Muerto Por Línea (Real Bar Chart con Escala Dinámica) */}
-                  <div className="bg-white border border-[#DCE3EA] p-4 rounded-xl shadow-sm flex flex-col justify-between">
+                  <div 
+                    onClick={() => setExpandedChart('downtime')}
+                    className="bg-white border border-[#DCE3EA] p-4 rounded-xl shadow-sm hover:shadow-md hover:border-[#005486]/40 transition-all cursor-pointer flex flex-col justify-between"
+                  >
                     <div className="flex items-center justify-between mb-2">
                       <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
                         <BarChart2 className="w-4 h-4 text-amber-600" />
@@ -1396,21 +1386,25 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                         Máx: {maxDowntimeValue} min
                       </span>
                     </div>
-                    <div className="h-56 w-full">
+                    <div className="h-44 w-full pointer-events-none">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={chartDowntimeData}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
-                          <XAxis dataKey="name" stroke="#64748B" fontSize={10} />
-                          <YAxis stroke="#64748B" fontSize={10} unit=" min" domain={[0, yMaxDowntime]} allowDecimals={false} />
-                          <Tooltip formatter={(val: any) => [`${val} min`, 'Tiempo Muerto / Integración']} />
-                          <Bar dataKey="minutos" fill="#D97706" radius={[4, 4, 0, 0]} name="Minutos Tiempo Muerto" />
+                          <XAxis dataKey="name" stroke="#64748B" fontSize={8} />
+                          <YAxis stroke="#64748B" fontSize={8} unit=" min" domain={[0, yMaxDowntime]} allowDecimals={false} />
+                          <Tooltip />
+                          <Bar dataKey="minutos" fill="#D97706" radius={[3, 3, 0, 0]} name="Tiempo Muerto" />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
+                    <div className="text-[9px] text-slate-400 mt-2 text-right italic font-medium">Click para ampliar</div>
                   </div>
 
                   {/* CHART 2: Tiempo de Integración (Real Line Chart con Escala Dinámica) */}
-                  <div className="bg-white border border-[#DCE3EA] p-4 rounded-xl shadow-sm flex flex-col justify-between">
+                  <div 
+                    onClick={() => setExpandedChart('integration')}
+                    className="bg-white border border-[#DCE3EA] p-4 rounded-xl shadow-sm hover:shadow-md hover:border-[#005486]/40 transition-all cursor-pointer flex flex-col justify-between"
+                  >
                     <div className="flex items-center justify-between mb-2">
                       <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
                         <Clock className="w-4 h-4 text-[#005486]" />
@@ -1420,28 +1414,90 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                         Máx: {maxIntegrationValue} min
                       </span>
                     </div>
-                    <div className="h-56 w-full">
+                    <div className="h-44 w-full pointer-events-none">
                       <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={integrationTimeline.chartData}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
-                          <XAxis dataKey="time" stroke="#64748B" fontSize={10} />
-                          <YAxis stroke="#64748B" fontSize={10} unit=" min" domain={[0, yMaxIntegration]} allowDecimals={false} />
-                          <Tooltip formatter={(val: any, name: any) => [`${val} min`, name]} />
-                          <Legend wrapperStyle={{ fontSize: '10px' }} />
+                          <XAxis dataKey="time" stroke="#64748B" fontSize={8} />
+                          <YAxis stroke="#64748B" fontSize={8} unit=" min" domain={[0, yMaxIntegration]} allowDecimals={false} />
+                          <Tooltip />
                           {lines.slice(0, 6).map((l: any, idx: number) => (
                             <Line
                               key={l.id}
                               type="monotone"
                               dataKey={l.name}
                               stroke={integrationTimeline.lineColors[idx % integrationTimeline.lineColors.length]}
-                              strokeWidth={2.5}
-                              dot={{ r: 3 }}
-                              activeDot={{ r: 6 }}
+                              strokeWidth={2}
+                              dot={{ r: 2 }}
                             />
                           ))}
                         </LineChart>
                       </ResponsiveContainer>
                     </div>
+                    <div className="text-[9px] text-slate-400 mt-2 text-right italic font-medium">Click para ampliar</div>
+                  </div>
+
+                  {/* CHART 3: Cobertura por Línea */}
+                  <div 
+                    onClick={() => setExpandedChart('coverage')}
+                    className="bg-white border border-[#DCE3EA] p-4 rounded-xl shadow-sm hover:shadow-md hover:border-[#005486]/40 transition-all cursor-pointer flex flex-col justify-between"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                        <Percent className="w-4 h-4 text-blue-600" />
+                        3. COBERTURA DE PERSONAL
+                      </h4>
+                      <span className="text-[10px] font-mono font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                        Objetivo: 100%
+                      </span>
+                    </div>
+                    <div className="h-44 w-full pointer-events-none">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={lines.map(line => {
+                          const m = calculateLineMetrics(line.id, posiciones, scans, coverages);
+                          return { name: line.name, cobertura: m.coveragePct };
+                        })}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
+                          <XAxis dataKey="name" stroke="#64748B" fontSize={8} />
+                          <YAxis stroke="#64748B" fontSize={8} unit=" %" domain={[0, 100]} />
+                          <Tooltip />
+                          <Bar dataKey="cobertura" fill="#3B82F6" radius={[3, 3, 0, 0]} name="Cobertura %" />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="text-[9px] text-slate-400 mt-2 text-right italic font-medium">Click para ampliar</div>
+                  </div>
+
+                  {/* CHART 4: Cumplimiento de Plantilla */}
+                  <div 
+                    onClick={() => setExpandedChart('compliance')}
+                    className="bg-white border border-[#DCE3EA] p-4 rounded-xl shadow-sm hover:shadow-md hover:border-[#005486]/40 transition-all cursor-pointer flex flex-col justify-between"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                        <Users className="w-4 h-4 text-emerald-600" />
+                        4. CUMPLIMIENTO DE PLANTILLA
+                      </h4>
+                      <span className="text-[10px] font-mono font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                        En Vivo
+                      </span>
+                    </div>
+                    <div className="h-44 w-full pointer-events-none">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={lines.map(line => {
+                          const m = calculateLineMetrics(line.id, posiciones, scans, coverages);
+                          return { name: line.name, 'Presentes': m.scannedCount, 'Requeridos': m.target };
+                        })}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
+                          <XAxis dataKey="name" stroke="#64748B" fontSize={8} />
+                          <YAxis stroke="#64748B" fontSize={8} allowDecimals={false} />
+                          <Tooltip />
+                          <Bar dataKey="Requeridos" fill="#64748B" radius={[3, 3, 0, 0]} opacity={0.3} />
+                          <Bar dataKey="Presentes" fill="#10B981" radius={[3, 3, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="text-[9px] text-slate-400 mt-2 text-right italic font-medium">Click para ampliar</div>
                   </div>
 
                 </div>
@@ -1649,6 +1705,124 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
               >
                 Guardar
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EXPANDED CHART MODAL */}
+      {expandedChart && (
+        <div 
+          className="fixed inset-0 bg-slate-900/65 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={() => setExpandedChart(null)}
+        >
+          <div 
+            className="bg-white border border-[#DCE3EA] rounded-2xl shadow-2xl w-11/12 max-w-5xl h-[80vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="bg-[#005486] px-6 py-4 flex items-center justify-between text-white shrink-0">
+              <div className="flex items-center gap-2.5">
+                <BarChart2 className="w-5 h-5 text-white" />
+                <div>
+                  <h3 className="text-sm font-black tracking-wide uppercase font-mono">
+                    {expandedChart === 'downtime' && '1. Tiempo Muerto por Línea - Detalle Completo'}
+                    {expandedChart === 'integration' && '2. Tiempo de Integración por Línea - Detalle Completo'}
+                    {expandedChart === 'coverage' && '3. Cobertura de Personal por Línea - Detalle Completo'}
+                    {expandedChart === 'compliance' && '4. Cumplimiento de Plantilla por Línea - Detalle Completo'}
+                  </h3>
+                  <div className="text-[10px] text-white/70 font-semibold mt-0.5">
+                    Filtros activos &rarr; Área: <strong className="text-emerald-300">{selectedArea === 'ALL' ? 'Todas' : selectedArea}</strong>
+                    {searchQuery && <> | Búsqueda: <strong className="text-emerald-300">"{searchQuery}"</strong></>}
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setExpandedChart(null)}
+                className="text-white/80 hover:text-white p-1.5 rounded-lg hover:bg-white/10 transition-all cursor-pointer text-xl font-bold font-mono"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex-grow p-6 min-h-0 overflow-y-auto flex flex-col justify-between space-y-4">
+              <div className="flex-grow min-h-0">
+                {expandedChart === 'downtime' && (
+                  <ResponsiveContainer width="100%" height="95%">
+                    <BarChart data={chartDowntimeData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
+                      <XAxis dataKey="name" stroke="#64748B" fontSize={11} fontStyle="bold" />
+                      <YAxis stroke="#64748B" fontSize={11} unit=" min" domain={[0, yMaxDowntime]} allowDecimals={false} />
+                      <Tooltip formatter={(val: any) => [`${val} min`, 'Tiempo Muerto / Integración']} />
+                      <Legend wrapperStyle={{ fontSize: '12px' }} />
+                      <Bar dataKey="minutos" fill="#D97706" radius={[4, 4, 0, 0]} name="Minutos Tiempo Muerto" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+
+                {expandedChart === 'integration' && (
+                  <ResponsiveContainer width="100%" height="95%">
+                    <LineChart data={integrationTimeline.chartData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
+                      <XAxis dataKey="time" stroke="#64748B" fontSize={11} />
+                      <YAxis stroke="#64748B" fontSize={11} unit=" min" domain={[0, yMaxIntegration]} allowDecimals={false} />
+                      <Tooltip formatter={(val: any, name: any) => [`${val} min`, name]} />
+                      <Legend wrapperStyle={{ fontSize: '12px' }} />
+                      {lines.map((l: any, idx: number) => (
+                        <Line
+                          key={l.id}
+                          type="monotone"
+                          dataKey={l.name}
+                          stroke={integrationTimeline.lineColors[idx % integrationTimeline.lineColors.length]}
+                          strokeWidth={3}
+                          dot={{ r: 4 }}
+                          activeDot={{ r: 8 }}
+                        />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                )}
+
+                {expandedChart === 'coverage' && (
+                  <ResponsiveContainer width="100%" height="95%">
+                    <BarChart 
+                      data={lines.map(line => {
+                        const m = calculateLineMetrics(line.id, posiciones, scans, coverages);
+                        return { name: line.name, 'Cobertura %': m.coveragePct };
+                      })} 
+                      margin={{ top: 20, right: 30, left: 20, bottom: 20 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
+                      <XAxis dataKey="name" stroke="#64748B" fontSize={11} />
+                      <YAxis stroke="#64748B" fontSize={11} unit=" %" domain={[0, 100]} allowDecimals={false} />
+                      <Tooltip formatter={(val: any) => [`${val}%`, 'Cobertura de Personal']} />
+                      <Legend wrapperStyle={{ fontSize: '12px' }} />
+                      <Bar dataKey="Cobertura %" fill="#3B82F6" radius={[4, 4, 0, 0]} name="Cobertura de Personal" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+
+                {expandedChart === 'compliance' && (
+                  <ResponsiveContainer width="100%" height="95%">
+                    <BarChart 
+                      data={lines.map(line => {
+                        const m = calculateLineMetrics(line.id, posiciones, scans, coverages);
+                        return { name: line.name, 'Operadores Presentes': m.scannedCount, 'Plantilla Requerida': m.target };
+                      })} 
+                      margin={{ top: 20, right: 30, left: 20, bottom: 20 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
+                      <XAxis dataKey="name" stroke="#64748B" fontSize={11} />
+                      <YAxis stroke="#64748B" fontSize={11} allowDecimals={false} />
+                      <Tooltip formatter={(val: any, name: any) => [`${val} op`, name]} />
+                      <Legend wrapperStyle={{ fontSize: '12px' }} />
+                      <Bar dataKey="Plantilla Requerida" fill="#64748B" radius={[4, 4, 0, 0]} opacity={0.3} />
+                      <Bar dataKey="Operadores Presentes" fill="#10B981" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
             </div>
           </div>
         </div>

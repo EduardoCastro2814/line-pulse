@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Monitor, LayoutDashboard, Clock, AlertTriangle, User, FileText, Database } from 'lucide-react';
+import { Monitor, LayoutDashboard, Clock, AlertTriangle, User, FileText } from 'lucide-react';
 import { ExecutiveDashboard } from './components/ExecutiveDashboard';
 import { TvDashboard } from './components/TvDashboard';
 import { LineDetailsModal } from './components/LineDetailsModal';
 import { ReportsView } from './components/ReportsView';
 import { ScannerDrawer } from './components/ScannerDrawer';
-import { supabase, checkSupabaseConnection, type SupabaseConnectionStatus } from './lib/supabaseClient';
+import { supabase } from './lib/supabaseClient';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 
 export default function App() {
@@ -16,24 +16,8 @@ export default function App() {
   const [systemAlerts, setSystemAlerts] = useState<string[]>([]);
   const [isScannerOpen] = useState(false);
   
-  // Connection status state
-  const [connectionStatus, setConnectionStatus] = useState<SupabaseConnectionStatus>({
-    isConfigured: false,
-    isConnected: false,
-    message: 'Verificando conexión...'
-  });
-  
   // User Profile Role Control
   const [userRole, setUserRole] = useState<'admin' | 'supervisor' | 'viewer'>('admin');
-
-  // Check Supabase connection on mount
-  useEffect(() => {
-    async function verifyConnection() {
-      const status = await checkSupabaseConnection();
-      setConnectionStatus(status);
-    }
-    verifyConnection();
-  }, []);
 
   // Clock ticker
   useEffect(() => {
@@ -150,36 +134,6 @@ export default function App() {
                     <FileText className="w-3.5 h-3.5" />
                     <span>Reportes</span>
                   </button>
-                </div>
-
-                {/* Supabase Connection Status Badge */}
-                <div 
-                  className={`flex items-center gap-1.5 border px-2.5 py-1.5 rounded-xl text-xs font-bold cursor-pointer transition-all ${
-                    connectionStatus.isConnected 
-                      ? 'bg-emerald-500/20 border-emerald-300/40 text-emerald-100'
-                      : connectionStatus.isConfigured
-                      ? 'bg-red-500/20 border-red-300/40 text-red-100'
-                      : 'bg-amber-500/20 border-amber-300/40 text-amber-100'
-                  }`}
-                  title={connectionStatus.message}
-                >
-                  <Database className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">
-                    {connectionStatus.isConnected 
-                      ? '✅ Supabase Conectado'
-                      : connectionStatus.isConfigured
-                      ? '⚠️ Error Supabase (404/Tablas Falta)'
-                      : 'Modo Demo Local'}
-                  </span>
-                  <span 
-                    className={`w-2 h-2 rounded-full ${
-                      connectionStatus.isConnected 
-                        ? 'bg-emerald-400 animate-pulse'
-                        : connectionStatus.isConfigured
-                        ? 'bg-red-400'
-                        : 'bg-amber-400'
-                    }`}
-                  />
                 </div>
 
                 {/* Profile Role Selector */}

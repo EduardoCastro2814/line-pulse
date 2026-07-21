@@ -224,7 +224,11 @@ export const TvDashboard: React.FC = () => {
                 key={line.id}
                 onClick={() => navigate(`/linea/${line.id}?tv=true`)}
                 style={{ borderColor: donutColor }}
-                className={`${cardWidthClass} bg-white border-2 hover:shadow-xl rounded-2xl transition-all flex flex-col justify-between p-4 cursor-pointer select-none relative overflow-hidden shrink-0 shadow-sm hover:scale-[1.01]`}
+                className={`${cardWidthClass} ${
+                  isCoverageActive 
+                    ? 'bg-blue-50/50 hover:bg-blue-50/70 shadow-blue-100' 
+                    : 'bg-white hover:bg-slate-50'
+                } border-2 hover:shadow-xl rounded-2xl transition-all flex flex-col justify-between p-4 cursor-pointer select-none relative overflow-hidden shrink-0 shadow-sm hover:scale-[1.01]`}
               >
                 {/* 1. Nombre Línea */}
                 <div className="flex justify-between items-center">
@@ -235,8 +239,9 @@ export const TvDashboard: React.FC = () => {
                     </span>
                   </div>
                   {isCoverageActive && (
-                    <span className="px-2 py-0.5 rounded text-[9px] font-extrabold uppercase font-mono tracking-wide bg-blue-100 text-blue-700 border border-blue-300 animate-pulse">
-                      COMEDOR
+                    <span className="px-2 py-0.5 rounded-lg text-[9px] font-black uppercase font-mono tracking-wide bg-blue-600 text-white border border-blue-400 animate-pulse shadow-sm flex items-center gap-1">
+                      <span>🍽️</span>
+                      <span>COBERTURA COMEDOR</span>
                     </span>
                   )}
                 </div>
