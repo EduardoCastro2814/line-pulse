@@ -479,16 +479,34 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
     return matchesSearch && matchesArea;
   });
 
-  // Chart Data Preparation (100% REAL DATA FROM SUPABASE)
+  // Chart Data Preparation (100% REAL DATA FROM SUPABASE - SINGLE SOURCE OF TRUTH)
   const todayLocalStr = getLocalDateString(new Date());
 
-  // 1. TIEMPO MUERTO POR LÍNEA (Real Bar Chart data using canonical getLineDowntimeMinutes)
+  // 1. TIEMPO MUERTO POR LÍNEA (Combinando tiempo de integración y eventos de tiempo muerto registrados)
   const chartDowntimeData = lines.map((l: any) => {
-    const sumMin = getLineDowntimeMinutes(l.id, downtimes, todayLocalStr);
+    const integrationMin = getLineIntegrationTimeMinutes(l, scans);
+    const downtimeEventsMin = getLineDowntimeMinutes(l.id, downtimes, todayLocalStr);
+    const sumMin = Math.max(integrationMin, downtimeEventsMin);
     return {
       name: l.name,
-      minutos: sumMin
+      minutos: sumMin,
+      integrationMin,
+      downtimeEventsMin
     };
+  });
+
+  // Dynamic Y-axis scale calculation for Chart 1
+  const maxDowntimeValue = Math.max(10, ...chartDowntimeData.map(d => d.minutos || 0));
+  const yMaxDowntime = Math.ceil((maxDowntimeValue * 1.2) / 10) * 10;
+
+  console.log('[DEBUG CHART 1 DATA]:', {
+    todayLocalStr,
+    totalLines: lines.length,
+    totalScans: scans.length,
+    totalDowntimes: downtimes.length,
+    chartDowntimeData,
+    maxDowntimeValue,
+    yMaxDowntime
   });
 
   // 2. TIEMPO DE INTEGRACIÓN (Real Line Chart data calculated over 15-minute time slots: 06:00, 06:15, 06:30, 06:45, 07:00...)
@@ -548,6 +566,12 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
   };
 
   const integrationTimeline = generateIntegrationTimeline();
+
+  // Dynamic Y-axis scale calculation for Chart 2
+  const maxIntegrationValue = Math.max(10, ...integrationTimeline.chartData.flatMap((row: any) =>
+    Object.keys(row).filter(k => k !== 'time').map(k => Number(row[k]) || 0)
+  ));
+  const yMaxIntegration = Math.ceil((maxIntegrationValue * 1.2) / 10) * 10;
 
   const selectedLine = lines.find(l => l.id === selectedLineId);
   const activeCoverages = coverages.filter(c => c.line_id === selectedLineId);
@@ -1329,43 +1353,47 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                 {/* CHARTS GRID WITH REAL DATA ONLY */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   
-                  {/* CHART 1: Tiempo Muerto Por Línea (Real Bar Chart) */}
+                  {/* CHART 1: Tiempo Muerto Por Línea (Real Bar Chart con Escala Dinámica) */}
                   <div className="bg-white border border-[#DCE3EA] p-4 rounded-xl shadow-sm flex flex-col justify-between">
                     <div className="flex items-center justify-between mb-2">
                       <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
                         <BarChart2 className="w-4 h-4 text-amber-600" />
                         1. TIEMPO MUERTO POR LÍNEA
                       </h4>
-                      <span className="text-[10px] text-slate-400 font-mono">Supabase Realtime</span>
+                      <span className="text-[10px] text-amber-700 font-mono font-extrabold bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                        Máx: {maxDowntimeValue} min
+                      </span>
                     </div>
                     <div className="h-56 w-full">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={chartDowntimeData}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
                           <XAxis dataKey="name" stroke="#64748B" fontSize={10} />
-                          <YAxis stroke="#64748B" fontSize={10} unit=" min" />
-                          <Tooltip formatter={(val: any) => [`${val} min`, 'Tiempo Muerto']} />
+                          <YAxis stroke="#64748B" fontSize={10} unit=" min" domain={[0, yMaxDowntime]} allowDecimals={false} />
+                          <Tooltip formatter={(val: any) => [`${val} min`, 'Tiempo Muerto / Integración']} />
                           <Bar dataKey="minutos" fill="#D97706" radius={[4, 4, 0, 0]} name="Minutos Tiempo Muerto" />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
                   </div>
 
-                  {/* CHART 2: Tiempo de Integración (Real Line Chart) */}
+                  {/* CHART 2: Tiempo de Integración (Real Line Chart con Escala Dinámica) */}
                   <div className="bg-white border border-[#DCE3EA] p-4 rounded-xl shadow-sm flex flex-col justify-between">
                     <div className="flex items-center justify-between mb-2">
                       <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
                         <Clock className="w-4 h-4 text-[#005486]" />
                         2. TIEMPO DE INTEGRACIÓN
                       </h4>
-                      <span className="text-[10px] text-slate-400 font-mono font-bold text-[#005486]">Gráfico de Líneas</span>
+                      <span className="text-[10px] font-mono font-bold text-[#005486] bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                        Máx: {maxIntegrationValue} min
+                      </span>
                     </div>
                     <div className="h-56 w-full">
                       <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={integrationTimeline.chartData}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
                           <XAxis dataKey="time" stroke="#64748B" fontSize={10} />
-                          <YAxis stroke="#64748B" fontSize={10} unit=" min" />
+                          <YAxis stroke="#64748B" fontSize={10} unit=" min" domain={[0, yMaxIntegration]} allowDecimals={false} />
                           <Tooltip formatter={(val: any, name: any) => [`${val} min`, name]} />
                           <Legend wrapperStyle={{ fontSize: '10px' }} />
                           {lines.slice(0, 6).map((l: any, idx: number) => (
