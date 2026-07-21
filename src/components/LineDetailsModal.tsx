@@ -541,8 +541,11 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
             className="w-full h-full object-contain rounded-xl opacity-95 select-none pointer-events-none"
           />
 
-          {/* Minimalist Operator Pins (CIRCULAR ICONS ONLY - SEQUENTIAL OCCUPATION BY SCANS) */}
-          {posiciones.map((pos, idx) => {
+          {/* Minimalist Circular Operator Pin (CIRCULAR ICONS ONLY - SEQUENTIAL OCCUPATION BY SCANS) */}
+          {posiciones.filter((p: any) => {
+            const codeNum = Number(p.code.replace('POS', '')) || 0;
+            return codeNum <= target;
+          }).map((pos, idx) => {
             const isOccupied = idx < scannedCount;
             const isWithinTarget = idx < target;
 

@@ -275,6 +275,33 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
       if (error) {
         showFeedback('error', `❌ Error al guardar línea: ${error.message}`);
       } else {
+        // Sync and prune any layout positions that exceed the active target
+        const shiftInfo = getCurrentShift(payload, new Date(), 15);
+        let normalTarget = shiftInfo.target;
+        const covs = coverages.filter((c: any) => c.line_id === lineForm.id);
+        const curMin = new Date().getHours() * 60 + new Date().getMinutes();
+        const activeCov = covs.find((cov: any) => {
+          const timeToMinutes = (tStr: string) => {
+            if (!tStr) return 0;
+            const parts = tStr.split(':').map(Number);
+            return (parts[0] || 0) * 60 + (parts[1] || 0);
+          };
+          return curMin >= timeToMinutes(cov.start_time) && curMin < timeToMinutes(cov.end_time);
+        });
+        const activeTarget = activeCov ? Number(activeCov.required_operators || 3) : normalTarget;
+
+        const linePos = posiciones.filter((p: any) => p.line_id === lineForm.id);
+        const extras = linePos.filter((p: any) => {
+          const codeNum = Number(p.code.replace('POS', '')) || 0;
+          return codeNum > activeTarget;
+        });
+
+        if (extras.length > 0) {
+          const extraCodes = extras.map(e => e.code);
+          await supabase.from('posiciones').delete().eq('line_id', lineForm.id).in('code', extraCodes);
+          await supabase.from('line_positions').delete().eq('line_id', lineForm.id).in('code', extraCodes);
+        }
+
         showFeedback('success', '✅ Línea actualizada correctamente');
         setIsLineCreateModalOpen(false);
         loadData();
@@ -356,10 +383,12 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
     if (!selectedLineId) return;
     const { target: targetCount } = getActiveStaffingTarget(selectedLineId, coverages);
     
-    // Filter positions that belong to this line and are placed on canvas
-    const currentLinePositions = posiciones.filter(
-      p => p.line_id === selectedLineId && p.placed !== false
-    );
+    // Filter positions that belong to this line, are placed, and fit within the target count
+    const currentLinePositions = posiciones.filter(p => {
+      if (p.line_id !== selectedLineId || p.placed === false) return false;
+      const codeNum = Number(p.code.replace('POS', '')) || 0;
+      return codeNum <= targetCount;
+    });
     
     const placedCount = currentLinePositions.length;
 
@@ -1098,7 +1127,11 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                 {configSubTab === 'layout' && (() => {
                   const targetCount = Math.max(1, getActiveStaffingTarget(selectedLineId || '', coverages).target || (selectedLineId ? (lines.find(l => l.id === selectedLineId)?.shift1_target || 6) : 6));
                   const targetPosCodes = Array.from({ length: targetCount }, (_, i) => `POS${String(i + 1).padStart(2, '0')}`);
-                  const currentLinePlacedPos = posiciones.filter(p => p.line_id === selectedLineId && p.placed !== false);
+                  const currentLinePlacedPos = posiciones.filter(p => {
+                    if (p.line_id !== selectedLineId || p.placed === false) return false;
+                    const codeNum = Number(p.code.replace('POS', '')) || 0;
+                    return codeNum <= targetCount;
+                  });
                   const placedPosCodes = new Set(currentLinePlacedPos.map(p => p.code));
                   const unplacedCodes = targetPosCodes.filter(code => !placedPosCodes.has(code));
                   const placedCount = currentLinePlacedPos.length;
@@ -1671,21 +1704,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                   />
                 </div>
 
-                {/* Estado */}
-                <div className="col-span-2">
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Estado Inicial
-                  </label>
-                  <select
-                    value={(lineForm as any).status || 'FALTA PERSONAL'}
-                    onChange={(e) => setLineForm({ ...lineForm, status: e.target.value } as any)}
-                    className="w-full bg-white border border-[#DCE3EA] rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-[#005486] font-semibold cursor-pointer"
-                  >
-                    <option value="FALTA PERSONAL">🔴 FALTA PERSONAL</option>
-                    <option value="COMPLETO">🟢 COMPLETO</option>
-                    <option value="COBERTURA ACTIVA">🔵 COBERTURA ACTIVA</option>
-                  </select>
-                </div>
+
               </div>
             </div>
 
