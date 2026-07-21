@@ -230,7 +230,7 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
       return;
     }
 
-    const targetInfo = getActiveStaffingTarget(lineId, coberturas);
+    const targetInfo = getActiveStaffingTarget(lineId, coberturas, [line]);
     const { 
       target, 
       isCoverageActive, 
@@ -267,34 +267,47 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
       )
     );
 
-    console.log('Turno detectado:', activeShiftName);
-    console.log('Plantilla activa:', target);
-    console.log('Escaneados actuales:', currentScannedList.length);
-    console.log('Escaneo recibido:', cleanNum);
-
     // REGLA 4: No Duplicates in Same Day + Same Shift
     if (currentScannedList.includes(cleanNum)) {
+      console.log('--- LINEPULSE DEP ESCANEO ---');
+      console.log('Plantilla activa:', target);
+      console.log('Escaneados actuales:', currentScannedList.length);
+      console.log('Escaneo recibido:', cleanNum);
       console.log('Resultado validación: RECHAZADO (Duplicado)');
+      console.log('Insert ejecutado: false');
+      console.log('-----------------------------');
       setScanFeedback({
         status: 'error',
-        message: 'Empleado ya registrado en este turno.'
+        message: `❌ ESCANEO INVÁLIDO\nEmpleado ya registrado\nen este turno.`
       });
-      setTimeout(() => setScanFeedback({ status: null, message: '' }), 3500);
+      setTimeout(() => setScanFeedback({ status: null, message: '' }), 3000);
       return;
     }
 
     // REGLA 5: Do NOT exceed target capacity
     if (currentScannedList.length >= target) {
+      console.log('--- LINEPULSE DEP ESCANEO ---');
+      console.log('Plantilla activa:', target);
+      console.log('Escaneados actuales:', currentScannedList.length);
+      console.log('Escaneo recibido:', cleanNum);
       console.log('Resultado validación: RECHAZADO (Plantilla completa)');
+      console.log('Insert ejecutado: false');
+      console.log('-----------------------------');
       setScanFeedback({
         status: 'error',
-        message: 'Plantilla completa. No se requieren más registros.'
+        message: `❌ ESCANEO INVÁLIDO\nPlantilla completa.\nNo se registró el empleado ${cleanNum}.`
       });
-      setTimeout(() => setScanFeedback({ status: null, message: '' }), 3500);
+      setTimeout(() => setScanFeedback({ status: null, message: '' }), 3000);
       return;
     }
 
+    console.log('--- LINEPULSE DEP ESCANEO ---');
+    console.log('Plantilla activa:', target);
+    console.log('Escaneados actuales:', currentScannedList.length);
+    console.log('Escaneo recibido:', cleanNum);
     console.log('Resultado validación: APROBADO');
+    console.log('Insert ejecutado: true');
+    console.log('-----------------------------');
 
     const eventType = isCoverageActive ? 'MEAL_COVERAGE' : 'TURN_START';
 
@@ -647,7 +660,7 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
               scanFeedback.status === 'error' ? 'bg-red-900 text-white border-red-700' : 'bg-slate-900 text-white border-slate-700'
             }`}>
               {scanFeedback.status === 'error' ? <AlertTriangle className="w-4 h-4 text-red-400" /> : <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
-              <span>{scanFeedback.message}</span>
+              <span className="whitespace-pre-line text-center">{scanFeedback.message}</span>
             </div>
           )}
 
