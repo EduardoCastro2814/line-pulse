@@ -267,18 +267,14 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
       )
     );
 
-    console.log('[DEBUG MONITOR KPIS PRE-INSERT]:', {
-      lineId,
-      todayLocalStr,
-      activeShiftName,
-      target,
-      scannedCount: currentScannedList.length,
-      currentScannedList,
-      attemptedNumber: cleanNum
-    });
+    console.log('Turno detectado:', activeShiftName);
+    console.log('Plantilla activa:', target);
+    console.log('Escaneados actuales:', currentScannedList.length);
+    console.log('Escaneo recibido:', cleanNum);
 
     // REGLA 4: No Duplicates in Same Day + Same Shift
     if (currentScannedList.includes(cleanNum)) {
+      console.log('Resultado validación: RECHAZADO (Duplicado)');
       setScanFeedback({
         status: 'error',
         message: 'Empleado ya registrado en este turno.'
@@ -287,8 +283,9 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
       return;
     }
 
-    // REGLA 5: Do NOT exceed target capacity (ONLY block if scannedCount >= target)
+    // REGLA 5: Do NOT exceed target capacity
     if (currentScannedList.length >= target) {
+      console.log('Resultado validación: RECHAZADO (Plantilla completa)');
       setScanFeedback({
         status: 'error',
         message: 'Plantilla completa. No se requieren más registros.'
@@ -296,6 +293,8 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
       setTimeout(() => setScanFeedback({ status: null, message: '' }), 3500);
       return;
     }
+
+    console.log('Resultado validación: APROBADO');
 
     const eventType = isCoverageActive ? 'MEAL_COVERAGE' : 'TURN_START';
 
@@ -527,6 +526,16 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
           </button>
         </div>
       </header>
+
+      {scannedCount > target && (
+        <div className="bg-amber-500 text-white px-6 py-2.5 text-xs font-bold flex items-center justify-between shadow-md shrink-0 animate-pulse z-30">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-white" />
+            <span>⚠️ ADVERTENCIA: La cantidad de operadores escaneados ({scannedCount}) supera la nueva plantilla configurada ({target}). No se permitirá registrar más personal.</span>
+          </div>
+          <span className="text-[10px] uppercase bg-black/20 px-2 py-0.5 rounded font-mono">Excedente: +{scannedCount - target}</span>
+        </div>
+      )}
 
       {/* 2. MAIN LAYOUT CANVAS (Maximized Blueprint + Clean Dot Indicators ONLY) */}
       <main className="flex-grow min-h-0 relative p-4 bg-[#F5F7FA] flex flex-col justify-center items-center overflow-hidden">

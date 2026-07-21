@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { supabase } from '../lib/supabaseClient';
+import { supabase, calculateLineMetrics, getActiveStaffingTarget, mapScanFromSupabase, getLocalDateString, getCurrentShift } from '../lib/supabaseClient';
 import { X, QrCode, ClipboardList, CheckCircle, XCircle } from 'lucide-react';
 
 interface ScannerDrawerProps {
@@ -80,6 +80,74 @@ export const ScannerDrawer: React.FC<ScannerDrawerProps> = ({ isOpen, onClose })
 
   const handleScan = async (badgeId: string) => {
     if (!badgeId.trim() || !selectedLine) return;
+
+    const lineObj = lines.find(l => l.id === selectedLine);
+    if (!lineObj) return;
+
+    // Load active scans, coverages, and positions for selected line to validate limit
+    const { data: dbScans } = await supabase.from('escaneos').select('*').eq('line_id', selectedLine);
+    const { data: dbCoverages } = await supabase.from('coberturas').select('*').eq('line_id', selectedLine);
+    const { data: dbPositions } = await supabase.from('posiciones').select('*').eq('line_id', selectedLine);
+
+    const cleanScans = (dbScans || []).map(mapScanFromSupabase);
+    const metrics = calculateLineMetrics(
+      selectedLine, 
+      dbPositions || [], 
+      cleanScans, 
+      dbCoverages || [], 
+      lines
+    );
+    const { target, scannedCount, activeShiftName } = metrics;
+
+    // Debugging Console Logs requested:
+    console.log('Turno detectado:', activeShiftName);
+    console.log('Plantilla activa:', target);
+    console.log('Escaneados actuales:', scannedCount);
+    console.log('Escaneo recibido:', badgeId.trim());
+
+    // Validation
+    const todayLocalStr = getLocalDateString(new Date());
+    const shiftInfo = getActiveStaffingTarget(selectedLine, dbCoverages || [], lines);
+    const { validScanStartMin, validScanEndMin } = shiftInfo;
+
+    const lineScans = cleanScans.filter((s: any) => {
+      if (s.was_successful === false) return false;
+      const scanDate = new Date(s.event_time || s.scan_time || s.created_at || Date.now());
+      if (isNaN(scanDate.getTime())) return false;
+      if (getLocalDateString(scanDate) !== todayLocalStr) return false;
+      
+      if (s.shift) {
+        if (s.shift !== activeShiftName) return false;
+      } else {
+        if (getCurrentShift(lineObj, scanDate, 15).shiftName !== activeShiftName) return false;
+      }
+      const scanMin = scanDate.getHours() * 60 + scanDate.getMinutes();
+      return scanMin >= validScanStartMin && scanMin < validScanEndMin;
+    });
+
+    const distinctScanned = Array.from(new Set(lineScans.map((s: any) => (s.employee_number || s.badge_id || '').trim()).filter(Boolean)));
+
+    if (distinctScanned.includes(badgeId.trim())) {
+      console.log('Resultado validación: RECHAZADO (Duplicado)');
+      playBeep('error');
+      setFeedback({
+        status: 'error',
+        message: 'Empleado ya registrado en este turno.'
+      });
+      return;
+    }
+
+    if (scannedCount >= target) {
+      console.log('Resultado validación: RECHAZADO (Plantilla completa)');
+      playBeep('error');
+      setFeedback({
+        status: 'error',
+        message: 'Plantilla completa. No se requieren más registros.'
+      });
+      return;
+    }
+
+    console.log('Resultado validación: APROBADO');
 
     const emp = employeesList.find(e => e.badge_id.trim() === badgeId.trim());
 
