@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Monitor, LayoutDashboard, Clock, User, FileText } from 'lucide-react';
+import { Monitor, LayoutDashboard, Clock, User, FileText, Award } from 'lucide-react';
 import { ExecutiveDashboard } from './components/ExecutiveDashboard';
 import { TvDashboard } from './components/TvDashboard';
 import { LineDetailsModal } from './components/LineDetailsModal';
 import { ReportsView } from './components/ReportsView';
+import { CompetenciesView } from './components/CompetenciesView';
 import { ScannerDrawer } from './components/ScannerDrawer';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 
@@ -100,6 +101,18 @@ export default function App() {
                     <FileText className="w-3.5 h-3.5" />
                     <span>Reportes</span>
                   </button>
+
+                  <button
+                    onClick={() => navigate('/competencias')}
+                    className={`text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer ${
+                      isCurrentRoute('/competencias')
+                        ? 'bg-white text-[#005486] shadow-sm'
+                        : 'text-white/80 hover:text-white hover:bg-white/10'
+                    }`}
+                  >
+                    <Award className="w-3.5 h-3.5" />
+                    <span>Competencias</span>
+                  </button>
                 </div>
 
                 {/* Profile Role Selector */}
@@ -130,6 +143,7 @@ export default function App() {
               <Routes>
                 <Route path="/dashboard" element={<ExecutiveDashboard userRole={userRole} />} />
                 <Route path="/reportes" element={<ReportsView />} />
+                <Route path="/competencias" element={<CompetenciesView />} />
                 <Route path="*" element={<Navigate to="/dashboard" replace />} />
               </Routes>
             </main>

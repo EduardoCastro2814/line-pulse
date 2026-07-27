@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  FileText, Download, Calendar, Filter, Printer, Table, Trash2, RefreshCw, Clock
+  FileText, Download, Calendar, Filter, Printer, Table, Trash2, RefreshCw, Clock, Award
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { supabase, getLineIntegrationTimeMinutes, calculateLineMetrics, getLocalDateString, getCurrentShift, mapScanFromSupabase, getLineDowntimeMinutes } from '../lib/supabaseClient';
 
 export const ReportsView: React.FC = () => {
-  const [selectedReportType, setSelectedReportType] = useState<'scans' | 'downtime'>('scans');
+  const [selectedReportType, setSelectedReportType] = useState<'scans' | 'downtime' | 'competencies'>('scans');
   
   // Filters state with strict local date (YYYY-MM-DD)
   const [dateRange, setDateRange] = useState({
@@ -23,6 +24,8 @@ export const ReportsView: React.FC = () => {
   const [downtimes, setDowntimes] = useState<any[]>([]);
   const [posiciones, setPosiciones] = useState<any[]>([]);
   const [coverages, setCoverages] = useState<any[]>([]);
+  const [trainingRecords, setTrainingRecords] = useState<any[]>([]);
+  const [stationRequirements, setStationRequirements] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
 
@@ -30,13 +33,15 @@ export const ReportsView: React.FC = () => {
   const loadReportData = async () => {
     setLoading(true);
     try {
-      const [resLines, resAreas, resScans, resDowntimes, resPos, resCov] = await Promise.all([
+      const [resLines, resAreas, resScans, resDowntimes, resPos, resCov, resTrainRecords, resStationReqs] = await Promise.all([
         supabase.from('lineas').select('*').order('name'),
         supabase.from('areas').select('*').order('name'),
         supabase.from('escaneos').select('*'),
         supabase.from('tiempos_muertos').select('*'),
         supabase.from('posiciones').select('*'),
-        supabase.from('coberturas').select('*')
+        supabase.from('coberturas').select('*'),
+        supabase.from('training_records').select('*'),
+        supabase.from('station_requirements').select('*')
       ]);
 
       if (resLines.data) setLines(resLines.data);
@@ -48,6 +53,8 @@ export const ReportsView: React.FC = () => {
       if (resDowntimes.data) setDowntimes(resDowntimes.data);
       if (resPos.data) setPosiciones(resPos.data);
       if (resCov.data) setCoverages(resCov.data);
+      if (resTrainRecords.data) setTrainingRecords(resTrainRecords.data);
+      if (resStationReqs.data) setStationRequirements(resStationReqs.data);
     } catch (err) {
       console.error('Error al cargar datos de reportes:', err);
     } finally {
@@ -71,6 +78,12 @@ export const ReportsView: React.FC = () => {
       title: 'Reporte de Downtime', 
       desc: 'Análisis detallado de tiempos muertos, minutos de integración de plantilla y cobertura por línea.', 
       icon: Clock 
+    },
+    {
+      id: 'competencies' as const,
+      title: 'Cumplimiento de Competencias',
+      desc: 'Mostrar cumplimiento de entrenamientos requeridos por estación para el personal presente en cada línea.',
+      icon: Award
     }
   ];
 
@@ -269,6 +282,202 @@ export const ReportsView: React.FC = () => {
     document.body.removeChild(link);
   };
 
+  // Generate rows for operational competence matrix report
+  const getFilteredCompetenceRows = () => {
+    const rows: any[] = [];
+    const startDate = new Date(dateRange.start + 'T00:00:00');
+    const endDate = new Date(dateRange.end + 'T23:59:59');
+
+    lines.forEach(line => {
+      // Line filter
+      if (selectedLine !== 'ALL' && line.id !== selectedLine) return;
+
+      // Area filter
+      if (selectedArea !== 'ALL' && line.area_id !== selectedArea) return;
+
+      // Iterate dates
+      let currentDate = new Date(startDate.getTime());
+      while (currentDate <= endDate) {
+        const dateIso = getLocalDateString(currentDate);
+
+        // Shifts list
+        const shiftsToCheck = selectedShift !== 'ALL' ? [selectedShift] : ['Turno 1', 'Turno 2', 'Turno 3'];
+
+        shiftsToCheck.forEach(shiftName => {
+          let target = line.shift1_target;
+          if (shiftName === 'Turno 2') target = line.shift2_target;
+          else if (shiftName === 'Turno 3') target = line.shift3_target;
+
+          // Filter scans for this date, line, and shift
+          const dayShiftScans = scans.filter((s: any) => {
+            if (s.line_id !== line.id || s.was_successful === false) return false;
+            const scanDate = new Date(s.scan_time || s.created_at || s.event_time);
+            if (isNaN(scanDate.getTime())) return false;
+            if (getLocalDateString(scanDate) !== dateIso) return false;
+
+            const sShift = s.shift || getCurrentShift(line, scanDate, 15).shiftName;
+            return sShift === shiftName;
+          });
+
+          const presentBadges = Array.from(new Set(
+            dayShiftScans
+              .map((s: any) => (s.employee_number || s.badge_id || '').trim())
+              .filter(Boolean)
+          ));
+
+          const linePositions = posiciones
+            .filter((p: any) => p.line_id === line.id)
+            .sort((a: any, b: any) => {
+              const codeA = Number(a.code.replace('POS', '')) || 0;
+              const codeB = Number(b.code.replace('POS', '')) || 0;
+              return codeA - codeB;
+            });
+
+          const activePositions = linePositions.slice(0, target);
+          const presentEmployees = presentBadges.map(badgeId => {
+            const scan = dayShiftScans.find((s: any) => (s.employee_number || s.badge_id) === badgeId);
+            return {
+              id: scan?.employee_id || `emp-${badgeId}`,
+              badge_id: badgeId,
+              name: scan?.employee_name || `Empleado #${badgeId}`
+            };
+          });
+
+          const positionOccupancy: Record<string, any> = {};
+          const placedEmployeeIds = new Set<string>();
+
+          activePositions.forEach(pos => {
+            if (pos.employee_id) {
+              const isPresent = presentEmployees.find((e: any) => e.id === pos.employee_id || e.badge_id === pos.employee_id);
+              if (isPresent) {
+                positionOccupancy[pos.id] = { employee: isPresent };
+                placedEmployeeIds.add(isPresent.id);
+              }
+            }
+          });
+
+          const unplacedEmployees = presentEmployees.filter((e: any) => !placedEmployeeIds.has(e.id));
+          let unplacedIdx = 0;
+          activePositions.forEach(pos => {
+            if (!positionOccupancy[pos.id] && unplacedIdx < unplacedEmployees.length) {
+              const empToPlace = unplacedEmployees[unplacedIdx++];
+              positionOccupancy[pos.id] = { employee: empToPlace };
+              placedEmployeeIds.add(empToPlace.id);
+            }
+          });
+
+          activePositions.forEach(pos => {
+            const occ = positionOccupancy[pos.id];
+            const isOccupied = !!occ;
+            let isCertified = true;
+            let missingTrainings: string[] = [];
+            let employee: any = null;
+
+            if (occ) {
+              employee = occ.employee;
+              const reqs = stationRequirements
+                .filter((r: any) => r.station_name === pos.station_name)
+                .map((r: any) => r.training_name);
+              
+              const completed = trainingRecords
+                .filter((t: any) => t.employee_number === employee.badge_id && t.status === 'Completado')
+                .map((t: any) => t.training_name);
+
+              missingTrainings = reqs.filter((r: any) => !completed.includes(r));
+              isCertified = missingTrainings.length === 0;
+            }
+
+            rows.push({
+              id: `${line.id}-${dateIso}-${shiftName}-${pos.id}`,
+              date: dateIso,
+              shift: shiftName,
+              lineName: line.name,
+              posCode: pos.code,
+              stationName: pos.station_name,
+              employeeName: employee ? employee.name : 'Vacante',
+              employeeBadge: employee ? employee.badge_id : 'N/A',
+              isPresent: isOccupied,
+              isCertified: isOccupied ? isCertified : false,
+              missingTrainings: isOccupied ? missingTrainings : [],
+              statusText: isOccupied ? (isCertified ? 'Certificado' : 'Falta Entrenamiento') : 'Vacante'
+            });
+          });
+        });
+
+        // Next day
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+    });
+
+    return rows;
+  };
+
+  const exportCompetenciesCSV = () => {
+    const rowsData = getFilteredCompetenceRows();
+    if (rowsData.length === 0) {
+      alert('No hay datos para exportar.');
+      return;
+    }
+
+    const headers = ['Fecha', 'Turno', 'Línea', 'Posición', 'Estación', 'Empleado', 'Gafete', 'Estado', 'Cursos Faltantes'];
+    const rows = rowsData.map(r => [
+      `"${r.date}"`,
+      `"${r.shift}"`,
+      `"${r.lineName}"`,
+      `"${r.posCode}"`,
+      `"${r.stationName}"`,
+      `"${r.employeeName}"`,
+      `"${r.employeeBadge}"`,
+      `"${r.statusText}"`,
+      `"${r.missingTrainings.join(', ')}"`
+    ]);
+
+    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `cumplimiento_competencias_${dateRange.start}_a_${dateRange.end}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const exportCompetenciesExcel = () => {
+    const rowsData = getFilteredCompetenceRows();
+    if (rowsData.length === 0) {
+      alert('No hay datos para exportar.');
+      return;
+    }
+
+    const dataForExcel = rowsData.map(r => ({
+      'Fecha': r.date,
+      'Turno': r.shift,
+      'Línea': r.lineName,
+      'Posición': r.posCode,
+      'Estación': r.stationName,
+      'Empleado': r.employeeName,
+      'Gafete': r.employeeBadge,
+      'Estado': r.statusText,
+      'Cursos Faltantes': r.missingTrainings.join(', ')
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(dataForExcel);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Competencias');
+    
+    const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+    const dataBlob = new Blob([excelBuffer], { type: 'application/octet-stream' });
+    
+    const url = window.URL.createObjectURL(dataBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `cumplimiento_competencias_${dateRange.start}_a_${dateRange.end}.xlsx`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  };
+
   const filteredScansList = getFilteredScans();
   const filteredDowntimeList = getFilteredDowntimeRows();
 
@@ -426,19 +635,42 @@ export const ReportsView: React.FC = () => {
           <div>
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Informe Histórico en Vivo</span>
             <h3 className="text-lg font-black text-slate-900 font-mono">
-              {selectedReportType === 'scans' ? 'Escaneos y Asistencia' : 'Reporte de Downtime'}
+              {selectedReportType === 'scans' 
+                ? 'Escaneos y Asistencia' 
+                : selectedReportType === 'downtime' 
+                ? 'Reporte de Downtime' 
+                : 'Cumplimiento de Competencias'}
             </h3>
           </div>
 
           <div className="flex items-center gap-3">
-            {/* CSV Export Button */}
-            <button
-              onClick={selectedReportType === 'scans' ? exportScansCSV : exportDowntimeCSV}
-              className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold px-4 py-2 rounded-xl text-xs transition-all shadow-sm cursor-pointer"
-            >
-              <Download className="w-4 h-4" />
-              <span>Exportar CSV</span>
-            </button>
+            {/* Export buttons based on report type */}
+            {selectedReportType === 'competencies' ? (
+              <div className="flex gap-2">
+                <button
+                  onClick={exportCompetenciesCSV}
+                  className="flex items-center gap-1.5 bg-[#005486] hover:bg-[#003f66] text-white font-extrabold px-3 py-2 rounded-xl text-xs transition-all shadow-sm cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Exportar CSV</span>
+                </button>
+                <button
+                  onClick={exportCompetenciesExcel}
+                  className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold px-3 py-2 rounded-xl text-xs transition-all shadow-sm cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Exportar Excel</span>
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={selectedReportType === 'scans' ? exportScansCSV : exportDowntimeCSV}
+                className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold px-4 py-2 rounded-xl text-xs transition-all shadow-sm cursor-pointer"
+              >
+                <Download className="w-4 h-4" />
+                <span>Exportar CSV</span>
+              </button>
+            )}
 
             {/* Borrar Todo Button for Scans */}
             {selectedReportType === 'scans' && (
@@ -532,7 +764,7 @@ export const ReportsView: React.FC = () => {
               </tbody>
             </table>
 
-          ) : (
+          ) : selectedReportType === 'downtime' ? (
 
             /* TABLA 2: REPORTE DE DOWNTIME HISTÓRICO */
             <table className="w-full text-left border-collapse text-xs">
@@ -567,6 +799,60 @@ export const ReportsView: React.FC = () => {
                         <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase ${row.resolved ? 'bg-slate-100 text-slate-600' : 'bg-amber-100 text-amber-800 border border-amber-300 animate-pulse'}`}>
                           {row.resolved ? 'RESUELTO' : 'EN CURSO'}
                         </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+
+          ) : (
+
+            /* TABLA 3: CUMPLIMIENTO DE COMPETENCIAS OPERATIVAS */
+            <table className="w-full text-left border-collapse text-xs">
+              <thead className="bg-[#F5F7FA] border-b border-[#DCE3EA] sticky top-0 z-10 text-[10px] font-black uppercase text-slate-600 tracking-wider">
+                <tr>
+                  <th className="py-2.5 px-4">Fecha</th>
+                  <th className="py-2.5 px-4">Turno</th>
+                  <th className="py-2.5 px-4">Línea</th>
+                  <th className="py-2.5 px-4">Posición</th>
+                  <th className="py-2.5 px-4">Estación</th>
+                  <th className="py-2.5 px-4">Empleado</th>
+                  <th className="py-2.5 px-4">Gafete</th>
+                  <th className="py-2.5 px-4">Estado</th>
+                  <th className="py-2.5 px-4">Cursos Faltantes</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#DCE3EA] font-mono">
+                {getFilteredCompetenceRows().length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="py-12 text-center text-slate-400 font-sans font-semibold">
+                      No se encontraron registros de cumplimiento de competencias para los filtros seleccionados.
+                    </td>
+                  </tr>
+                ) : (
+                  getFilteredCompetenceRows().map((row) => (
+                    <tr key={row.id} className="hover:bg-[#F5F7FA] transition-colors">
+                      <td className="py-2.5 px-4 text-slate-700">{row.date}</td>
+                      <td className="py-2.5 px-4 text-slate-700 font-sans font-bold">{row.shift}</td>
+                      <td className="py-2.5 px-4 font-sans font-black text-slate-900">{row.lineName}</td>
+                      <td className="py-2.5 px-4 text-[#005486] font-bold">{row.posCode}</td>
+                      <td className="py-2.5 px-4 font-sans text-slate-800 font-semibold">{row.stationName}</td>
+                      <td className="py-2.5 px-4 font-sans text-slate-900 font-semibold">{row.employeeName}</td>
+                      <td className="py-2.5 px-4 text-slate-600">{row.employeeBadge}</td>
+                      <td className="py-2.5 px-4 font-sans">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          row.statusText === 'Certificado'
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            : row.statusText === 'Vacante'
+                            ? 'bg-slate-50 text-slate-600 border border-slate-200'
+                            : 'bg-amber-50 text-amber-700 border border-amber-200'
+                        }`}>
+                          {row.statusText}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-4 font-sans text-slate-500 font-semibold">
+                        {row.missingTrainings.length > 0 ? row.missingTrainings.join(', ') : 'Ninguno'}
                       </td>
                     </tr>
                   ))

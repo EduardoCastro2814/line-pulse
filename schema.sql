@@ -135,6 +135,30 @@ CREATE TABLE IF NOT EXISTS tiempos_muertos (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
+-- 10. TABLA: TRAINING_RECORDS
+CREATE TABLE IF NOT EXISTS training_records (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    employee_number VARCHAR(50) NOT NULL,
+    employee_name VARCHAR(150) NOT NULL,
+    training_name VARCHAR(100) NOT NULL,
+    status VARCHAR(50) NOT NULL,
+    completion_date DATE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    UNIQUE(employee_number, training_name)
+);
+
+-- 11. TABLA: STATION_REQUIREMENTS
+CREATE TABLE IF NOT EXISTS station_requirements (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    station_name VARCHAR(100) NOT NULL,
+    training_name VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    UNIQUE(station_name, training_name)
+);
+
+
 -- TRIGGERS DE UPDATED_AT
 DROP TRIGGER IF EXISTS update_areas_updated_at ON areas;
 CREATE TRIGGER update_areas_updated_at BEFORE UPDATE ON areas FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
@@ -166,6 +190,13 @@ CREATE TRIGGER update_escaneos_updated_at BEFORE UPDATE ON escaneos FOR EACH ROW
 DROP TRIGGER IF EXISTS update_tiempos_muertos_updated_at ON tiempos_muertos;
 CREATE TRIGGER update_tiempos_muertos_updated_at BEFORE UPDATE ON tiempos_muertos FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_training_records_updated_at ON training_records;
+CREATE TRIGGER update_training_records_updated_at BEFORE UPDATE ON training_records FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_station_requirements_updated_at ON station_requirements;
+CREATE TRIGGER update_station_requirements_updated_at BEFORE UPDATE ON station_requirements FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
+
+
 -- INDICES DE RENDIMIENTO
 CREATE INDEX IF NOT EXISTS idx_lineas_area ON lineas(area_id);
 CREATE INDEX IF NOT EXISTS idx_line_positions_line ON line_positions(line_id);
@@ -187,6 +218,9 @@ ALTER TABLE line_layouts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE coberturas ENABLE ROW LEVEL SECURITY;
 ALTER TABLE escaneos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tiempos_muertos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE training_records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE station_requirements ENABLE ROW LEVEL SECURITY;
+
 
 DROP POLICY IF EXISTS "Public access areas" ON areas;
 CREATE POLICY "Public access areas" ON areas FOR ALL USING (true) WITH CHECK (true);
@@ -238,3 +272,11 @@ FOR UPDATE USING (bucket_id = 'line-layouts');
 DROP POLICY IF EXISTS "Public Delete line-layouts" ON storage.objects;
 CREATE POLICY "Public Delete line-layouts" ON storage.objects
 FOR DELETE USING (bucket_id = 'line-layouts');
+
+-- COMPETENCIES AND TRAINING POLICIES
+DROP POLICY IF EXISTS "Public access training_records" ON training_records;
+CREATE POLICY "Public access training_records" ON training_records FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public access station_requirements" ON station_requirements;
+CREATE POLICY "Public access station_requirements" ON station_requirements FOR ALL USING (true) WITH CHECK (true);
+

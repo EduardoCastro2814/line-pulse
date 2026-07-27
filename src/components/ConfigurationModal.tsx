@@ -779,6 +779,7 @@ export const ConfigurationModal: React.FC<ConfigurationModalProps> = ({ isOpen, 
                           <div className="col-span-4">
                             <input
                               type="text"
+                              list={`station-names-${pos.id}`}
                               value={pos.station_name}
                               onChange={(e) => {
                                 const val = e.target.value;
@@ -787,6 +788,16 @@ export const ConfigurationModal: React.FC<ConfigurationModalProps> = ({ isOpen, 
                               className="w-full bg-[#F5F7FA] border border-[#DCE3EA] rounded p-1.5 text-slate-800"
                               placeholder="Nombre Estación"
                             />
+                            <datalist id={`station-names-${pos.id}`}>
+                              <option value="Stencil" />
+                              <option value="SPI" />
+                              <option value="Siplace 01" />
+                              <option value="Siplace 02" />
+                              <option value="AOI" />
+                              <option value="Rayos X" />
+                              <option value="Empaque" />
+                              <option value="Test" />
+                            </datalist>
                           </div>
 
                           {/* Employee Assignment */}

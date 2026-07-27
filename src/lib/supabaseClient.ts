@@ -28,6 +28,8 @@ export const loadTable = (tableName: string): any[] => {
       localStorage.removeItem(getStorageKey('tiempos_muertos'));
       localStorage.removeItem(getStorageKey('historial_eventos'));
       localStorage.removeItem(getStorageKey('posiciones'));
+      localStorage.removeItem(getStorageKey('training_records'));
+      localStorage.removeItem(getStorageKey('station_requirements'));
       // Fall through to seed
     } else {
       return parsed;
@@ -409,6 +411,36 @@ function getSeedData(): Record<string, any[]> {
     { id: 'pos-1-8', line_id: 'line-1', code: 'POS08', station_name: 'Auditoría Calidad', employee_id: 'emp-1018', x_percent: 94, y_percent: 50 }
   ];
 
+  const station_requirements = [
+    { id: 'sr-1', station_name: 'Stencil', training_name: 'SMT Básico' },
+    { id: 'sr-2', station_name: 'SPI', training_name: 'SMT Básico' },
+    { id: 'sr-3', station_name: 'SPI', training_name: 'SPI' },
+    { id: 'sr-4', station_name: 'SIPLACE 01', training_name: 'SMT Básico' },
+    { id: 'sr-5', station_name: 'SIPLACE 01', training_name: 'Siplace' },
+    { id: 'sr-6', station_name: 'SIPLACE 02', training_name: 'SMT Básico' },
+    { id: 'sr-7', station_name: 'SIPLACE 02', training_name: 'Siplace' },
+    { id: 'sr-8', station_name: 'Inspección AOI', training_name: 'SMT Básico' },
+    { id: 'sr-9', station_name: 'Inspección AOI', training_name: 'AOI' },
+    { id: 'sr-10', station_name: 'Horno Reflow', training_name: 'SMT Básico' },
+    { id: 'sr-11', station_name: 'Empaque Final', training_name: 'SMT Básico' },
+    { id: 'sr-12', station_name: 'Empaque Final', training_name: 'Empaque' }
+  ];
+
+  const training_records = [
+    { id: 'tr-1', employee_number: '100234', employee_name: 'Juan Pérez', training_name: 'SMT Básico', status: 'Completado', completion_date: '2026-01-15' },
+    { id: 'tr-2', employee_number: '100112', employee_name: 'María López', training_name: 'SMT Básico', status: 'Completado', completion_date: '2026-01-15' },
+    { id: 'tr-3', employee_number: '100112', employee_name: 'María López', training_name: 'Siplace', status: 'Completado', completion_date: '2026-02-10' },
+    { id: 'tr-4', employee_number: '100876', employee_name: 'Carlos Ruiz', training_name: 'SMT Básico', status: 'Completado', completion_date: '2026-01-15' },
+    { id: 'tr-5', employee_number: '100999', employee_name: 'Ana García', training_name: 'SMT Básico', status: 'Completado', completion_date: '2026-01-15' },
+    { id: 'tr-6', employee_number: '100777', employee_name: 'Miguel Torres', training_name: 'SMT Básico', status: 'Completado', completion_date: '2026-01-15' },
+    { id: 'tr-7', employee_number: '100555', employee_name: 'Patricia Rivas', training_name: 'SMT Básico', status: 'Completado', completion_date: '2026-01-15' },
+    { id: 'tr-8', employee_number: '100555', employee_name: 'Patricia Rivas', training_name: 'Empaque', status: 'Completado', completion_date: '2026-03-22' },
+    { id: 'tr-9', employee_number: '100444', employee_name: 'Jorge Castro', training_name: 'SMT Básico', status: 'Completado', completion_date: '2026-01-15' },
+    { id: 'tr-10', employee_number: '100333', employee_name: 'Lucía Medina', training_name: 'SMT Básico', status: 'Completado', completion_date: '2026-01-15' },
+    { id: 'tr-11', employee_number: '100222', employee_name: 'Héctor Santos', training_name: 'SMT Básico', status: 'Completado', completion_date: '2026-01-15' },
+    { id: 'tr-12', employee_number: '100111', employee_name: 'Sofía Ortiz', training_name: 'SMT Básico', status: 'Completado', completion_date: '2026-01-15' }
+  ];
+
   return {
     areas,
     turnos,
@@ -419,7 +451,9 @@ function getSeedData(): Record<string, any[]> {
     escaneos,
     tiempos_muertos,
     coberturas,
-    historial_eventos
+    historial_eventos,
+    station_requirements,
+    training_records
   };
 }
 
@@ -857,15 +891,129 @@ export const calculateLineMetrics = (
     return scanMin >= validScanStartMin && scanMin < validScanEndMin;
   });
 
-  const distinctScanned = new Set(
+  const distinctScannedBadges = Array.from(new Set(
     lineScans
       .map((s: any) => (s.employee_number || s.badge_id || '').trim())
       .filter(Boolean)
-  ).size;
+  ));
 
+  const distinctScanned = distinctScannedBadges.length;
   const cappedScanned = Math.min(distinctScanned, target);
   const coveragePct = target > 0 ? Math.min(100, Math.round((cappedScanned / target) * 100)) : 0;
   const missingCount = Math.max(0, target - cappedScanned);
+
+  // --- START COMPETENCY MATRIX OCCUPANCY & CERTIFICATION ALGORITHM ---
+  const rawPos = (_posicionesList && _posicionesList.length > 0)
+    ? _posicionesList
+    : loadTable('posiciones');
+
+  const linePositions = rawPos
+    .filter((p: any) => p.line_id === lineId)
+    .sort((a: any, b: any) => {
+      const codeA = Number(a.code.replace('POS', '')) || 0;
+      const codeB = Number(b.code.replace('POS', '')) || 0;
+      return codeA - codeB;
+    });
+
+  const activePositions = linePositions.slice(0, target);
+  const empleados = loadTable('empleados');
+  const presentEmployees = distinctScannedBadges.map(badgeId => {
+    return empleados.find((e: any) => e.badge_id === badgeId);
+  }).filter(Boolean);
+
+  const positionOccupancy: Record<string, any> = {};
+  const placedEmployeeIds = new Set<string>();
+
+  // A. First pass: Pre-assigned operators who are present
+  activePositions.forEach(pos => {
+    if (pos.employee_id) {
+      const isPresent = presentEmployees.find((e: any) => e.id === pos.employee_id);
+      if (isPresent) {
+        positionOccupancy[pos.id] = { employee: isPresent, isPreassigned: true };
+        placedEmployeeIds.add(isPresent.id);
+      }
+    }
+  });
+
+  // B. Second pass: Place remaining present employees sequentially in vacant slots
+  const unplacedEmployees = presentEmployees.filter((e: any) => !placedEmployeeIds.has(e.id));
+  let unplacedIdx = 0;
+  activePositions.forEach(pos => {
+    if (!positionOccupancy[pos.id] && unplacedIdx < unplacedEmployees.length) {
+      const empToPlace = unplacedEmployees[unplacedIdx++];
+      positionOccupancy[pos.id] = { employee: empToPlace, isPreassigned: false };
+      placedEmployeeIds.add(empToPlace.id);
+    }
+  });
+
+  // C. Third pass: Evaluate certification
+  const stationReqs = loadTable('station_requirements');
+  const trainingRecs = loadTable('training_records');
+
+  let certifiedCount = 0;
+  let uncertifiedCount = 0;
+  const positionsDetails: Record<string, any> = {};
+
+  activePositions.forEach((pos) => {
+    const occ = positionOccupancy[pos.id];
+    const isOccupied = !!occ;
+    let isCertified = true;
+    let missingTrainings: string[] = [];
+    let employee: any = null;
+
+    if (occ) {
+      employee = occ.employee;
+      const reqs = stationReqs
+        .filter((r: any) => r.station_name === pos.station_name)
+        .map((r: any) => r.training_name);
+      
+      const completed = trainingRecs
+        .filter((t: any) => t.employee_number === employee.badge_id && t.status === 'Completado')
+        .map((t: any) => t.training_name);
+
+      missingTrainings = reqs.filter((r: any) => !completed.includes(r));
+      isCertified = missingTrainings.length === 0;
+
+      if (isCertified) {
+        certifiedCount++;
+      } else {
+        uncertifiedCount++;
+      }
+    }
+
+    let markerColor = '#94A3B8'; // GREY (vacant)
+    let statusLabel = 'Vacante';
+
+    if (isOccupied) {
+      if (isCoverageActive) {
+        markerColor = '#3B82F6'; // BLUE
+        statusLabel = 'Cobertura Activa';
+      } else if (isCertified) {
+        markerColor = '#22C55E'; // GREEN
+        statusLabel = 'Cubierta';
+      } else {
+        markerColor = '#EAB308'; // YELLOW
+        statusLabel = `Operador presente sin entrenamiento completo. Faltante: ${missingTrainings.join(', ')}`;
+      }
+    } else {
+      markerColor = '#EF4444'; // RED
+      statusLabel = 'Vacante / Pendiente Escaneo';
+    }
+
+    positionsDetails[pos.id] = {
+      code: pos.code,
+      station_name: pos.station_name,
+      employee,
+      isPresent: isOccupied,
+      isCertified,
+      missingTrainings,
+      statusColor: markerColor,
+      statusLabel
+    };
+  });
+
+  const qualifiedCoveragePct = target > 0 ? Math.min(100, Math.round((certifiedCount / target) * 100)) : 0;
+  // --- END COMPETENCY MATRIX OCCUPANCY & CERTIFICATION ALGORITHM ---
 
   let statusColor = '#EF4444'; // Red
   let statusBadgeText = 'FALTA PERSONAL';
@@ -897,6 +1045,10 @@ export const calculateLineMetrics = (
     normalTarget,
     coverageTarget,
     scannedCount: cappedScanned,
+    certifiedCount,
+    uncertifiedCount,
+    qualifiedCoveragePct,
+    positionsDetails,
     coveragePct,
     missingCount,
     statusColor,
@@ -1178,10 +1330,31 @@ class MockSupabaseQuery {
         if (metrics.scannedCount >= metrics.target) {
           return { data: null, error: { message: 'Capacidad máxima alcanzada. No se registró el empleado.' } };
         }
-
         // Check line assignment template
         const assignments = loadTable('empleados_linea');
         const isAssigned = assignments.some((a: any) => a.employee_id === emp.id && a.line_id === lineId);
+        
+        let warning_message: string | null = null;
+        if (isAssigned) {
+          // Pre-calculate operator placement and training validation
+          const linePos = loadTable('posiciones').filter((p: any) => p.line_id === lineId);
+          const tempScans = [...data, {
+            badge_id: badgeId,
+            employee_number: badgeId,
+            line_id: lineId,
+            event_time: new Date().toISOString(),
+            event_type: item.event_type || 'shift_start',
+            was_successful: true
+          }];
+          const tempMetrics = calculateLineMetrics(lineId, linePos, tempScans, coverages, linesList);
+          
+          if (tempMetrics.positionsDetails) {
+            const detail = Object.values(tempMetrics.positionsDetails).find((d: any) => d.employee?.id === emp.id);
+            if (detail && !detail.isCertified) {
+              warning_message = `Operador registrado sin entrenamiento requerido. Curso faltante: ${detail.missingTrainings.join(', ')}`;
+            }
+          }
+        }
         
         const scanRecord = {
           id: Math.random().toString(36).substring(2, 11),
@@ -1192,6 +1365,7 @@ class MockSupabaseQuery {
           event_type: item.event_type || 'shift_start',
           was_successful: isAssigned,
           error_message: isAssigned ? null : 'Empleado no asignado a esta línea',
+          warning_message: isAssigned ? warning_message : null,
           created_at: new Date().toISOString()
         };
 

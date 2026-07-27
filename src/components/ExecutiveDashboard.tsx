@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { supabase, getActiveStaffingTarget, DEFAULT_SMT_LAYOUT, mapScanFromSupabase, calculateLineMetrics, getLineIntegrationTimeMinutes, getCurrentShift, getLocalDateString, getLineDowntimeMinutes } from '../lib/supabaseClient';
 import { 
   Users, AlertTriangle, Clock, Percent, Search, Settings, ExternalLink, 
-  BarChart2, Layers, Save, Upload, Plus, X, CheckCircle2, Edit
+  BarChart2, Layers, Save, Upload, Plus, X, CheckCircle2, Edit, Award
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { 
@@ -529,17 +529,20 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
   // KPI Calculations
   let totalRequired = 0;
   let totalPresent = 0;
+  let totalCertified = 0;
   let totalDowntimeToday = 0;
 
   lines.forEach((line: any) => {
     const metrics = calculateLineMetrics(line.id, posiciones, scans, coverages, lines);
     totalRequired += metrics.target;
     totalPresent += metrics.scannedCount;
+    totalCertified += metrics.certifiedCount || 0;
     totalDowntimeToday += getLineIntegrationTimeMinutes(line, scans);
   });
 
   const missingCount = Math.max(0, totalRequired - totalPresent);
   const globalCoveragePct = totalRequired > 0 ? Math.round((totalPresent / totalRequired) * 100) : 0;
+  const globalQualifiedCoveragePct = totalRequired > 0 ? Math.round((totalCertified / totalRequired) * 100) : 0;
 
   // Filter lines for left list
   const filteredLines = lines.filter((line: any) => {
@@ -660,7 +663,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
     <div className="bg-[#F5F7FA] text-slate-800 flex-grow h-full flex flex-col overflow-hidden p-4 space-y-4 font-sans select-none">
       
       {/* 1. TOP CORPORATE KPI SUMMARY RIBBON */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 shrink-0">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 shrink-0">
         <div className="bg-white border border-[#DCE3EA] p-3 rounded-xl flex items-center justify-between shadow-sm">
           <div>
             <span className="text-[10px] font-bold text-slate-500 tracking-wider uppercase block">Cobertura Global</span>
@@ -668,6 +671,16 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
           </div>
           <div className="p-2 bg-blue-50 rounded-lg text-[#005486]">
             <Percent className="w-4 h-4" />
+          </div>
+        </div>
+
+        <div className="bg-white border border-[#DCE3EA] p-3 rounded-xl flex items-center justify-between shadow-sm">
+          <div>
+            <span className="text-[10px] font-bold text-slate-500 tracking-wider uppercase block">Cobertura Calificada</span>
+            <span className="text-xl font-black font-mono text-emerald-600">{globalQualifiedCoveragePct}%</span>
+          </div>
+          <div className="p-2 bg-emerald-50 rounded-lg text-emerald-600">
+            <Award className="w-4 h-4" />
           </div>
         </div>
 

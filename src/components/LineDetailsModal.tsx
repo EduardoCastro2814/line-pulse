@@ -95,7 +95,7 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
 
   // Inline scanner states & USB Direct Capture
   const [manualScanInput, setManualScanInput] = useState('');
-  const [scanFeedback, setScanFeedback] = useState<{ status: 'success' | 'error' | null; message: string }>({
+  const [scanFeedback, setScanFeedback] = useState<{ status: 'success' | 'error' | 'warning' | null; message: string }>({
     status: null,
     message: ''
   });
@@ -347,14 +347,9 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
     setEscaneos(updatedScansList);
     escaneosRef.current = updatedScansList;
 
-    setScanFeedback({
-      status: 'success',
-      message: `✅ Escaneo registrado: Empleado #${cleanNum}`
-    });
-
     // 3. Persist mapped record to Supabase
     try {
-      const { error: insertError } = await supabase.from('escaneos').insert(mappedRecord);
+      const { data: insertResult, error: insertError } = await supabase.from('escaneos').insert(mappedRecord).select().single();
 
       if (insertError) {
         console.error('[SUPABASE INSERT ERROR DETALLADO]:', insertError);
@@ -364,6 +359,19 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
         });
       } else {
         console.log('[SUPABASE INSERT EXITOSO]: Escaneo registrado correctamente en base de datos');
+        
+        const insertedRecord = insertResult;
+        if (insertedRecord?.warning_message) {
+          setScanFeedback({
+            status: 'warning',
+            message: `⚠️ Operador registrado sin entrenamiento requerido.\n${insertedRecord.warning_message.replace('Operador registrado sin entrenamiento requerido. ', '')}`
+          });
+        } else {
+          setScanFeedback({
+            status: 'success',
+            message: `✅ Escaneo registrado: Empleado #${cleanNum}`
+          });
+        }
 
         // Calculate new status:
         // 0% -> FALTA PERSONAL
@@ -555,7 +563,6 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
         
         {/* Visual Blueprint Container */}
         <div className="relative w-full h-full max-w-[1450px] max-h-[750px] bg-white border border-[#DCE3EA] rounded-2xl shadow-sm flex items-center justify-center overflow-hidden p-3">
-          
           {/* Blueprint Background Image */}
           <img 
             src={layoutImageSrc} 
@@ -563,34 +570,16 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
             className="w-full h-full object-contain rounded-xl opacity-95 select-none pointer-events-none"
           />
 
-          {/* Minimalist Circular Operator Pin (CIRCULAR ICONS ONLY - SEQUENTIAL OCCUPATION BY SCANS) */}
+          {/* Minimalist Circular Operator Pin (CIRCULAR ICONS ONLY - COMPETENCIES MATRIX DRIVEN) */}
           {posiciones.filter((p: any) => {
             const codeNum = Number(p.code.replace('POS', '')) || 0;
             return codeNum <= target;
           }).map((pos, idx) => {
-            const isOccupied = idx < scannedCount;
-            const isWithinTarget = idx < target;
-
-            // COLOR RULES:
-            // 🟢 VERDE (#22C55E): Posición cubierta por escaneo
-            // 🔴 ROJO (#EF4444): Posición vacante / pendiente de escaneo
-            // 🔵 AZUL (#3B82F6): Cobertura de comedor activa
-            // ⚪ GRIS (#94A3B8): Sin estado (fuera de plantilla)
-            let markerColor = '#94A3B8'; // GREY (Sin estado)
-            let statusLabel = 'Sin Estado';
-
-            if (isOccupied) {
-              if (isCoverageActive) {
-                markerColor = '#3B82F6'; // BLUE
-                statusLabel = 'Cobertura Activa';
-              } else {
-                markerColor = '#22C55E'; // GREEN
-                statusLabel = 'Cubierta';
-              }
-            } else if (isWithinTarget) {
-              markerColor = '#EF4444'; // RED
-              statusLabel = 'Vacante / Pendiente Escaneo';
-            }
+            const detail = metrics.positionsDetails?.[pos.id];
+            const isOccupied = detail?.isPresent ?? false;
+            const markerColor = detail?.statusColor ?? '#94A3B8';
+            const isCertified = detail?.isCertified ?? true;
+            const missingTrainings = detail?.missingTrainings ?? [];
 
             return (
               <div 
@@ -602,7 +591,7 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
                 }}
                 className="absolute z-10 transition-all duration-300 group cursor-pointer"
               >
-                {/* 🟢🔴🔵⚪ Minimalist Circular Operator Pin (Dot Only) */}
+                {/* 🟢🔴🔵🟡 Minimalist Circular Operator Pin (Dot Only) */}
                 <div className="relative flex items-center justify-center">
                   {/* Outer pulse ring */}
                   <span 
@@ -624,8 +613,8 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
                   />
                 </div>
 
-                {/* Floating Tooltip ON HOVER ONLY (Shows Position Code and Operational Status) */}
-                <div className="opacity-0 group-hover:opacity-100 transition-all duration-200 pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2.5 bg-slate-900 text-white p-2.5 rounded-xl z-30 min-w-[150px] shadow-xl border border-slate-800 text-center scale-95 group-hover:scale-100">
+                {/* Floating Tooltip ON HOVER ONLY (Shows Position Code, Operator and Operational Status) */}
+                <div className="opacity-0 group-hover:opacity-100 transition-all duration-200 pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2.5 bg-slate-900 text-white p-2.5 rounded-xl z-30 min-w-[180px] shadow-xl border border-slate-800 text-center scale-95 group-hover:scale-100">
                   <div className="flex items-center justify-between border-b border-slate-800 pb-1 mb-1">
                     <span className="text-xs font-black font-mono text-emerald-400 uppercase tracking-wider">
                       ● {pos.code || `POS${String(idx + 1).padStart(2, '0')}`}
@@ -640,12 +629,24 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
                     {pos.station_name || pos.code || `Estación POS${idx + 1}`}
                   </span>
 
+                  {detail?.employee && (
+                    <span className="text-[10px] text-slate-400 block mt-1 font-sans font-semibold">
+                      Operador: {detail.employee.name} (#{detail.employee.badge_id})
+                    </span>
+                  )}
+
                   <span 
                     className="text-[10px] font-extrabold uppercase tracking-wider block mt-1 pt-1 border-t border-slate-800/60"
                     style={{ color: markerColor }}
                   >
-                    {statusLabel}
+                    {isOccupied ? (isCoverageActive ? 'Cobertura Activa' : (isCertified ? 'Certificado' : 'No Certificado')) : 'Vacante'}
                   </span>
+
+                  {isOccupied && !isCertified && !isCoverageActive && (
+                    <span className="text-[9px] text-amber-400 block mt-0.5 leading-tight font-sans font-bold">
+                      Falta: {missingTrainings.join(', ')}
+                    </span>
+                  )}
 
                   {/* Tooltip triangle tail */}
                   <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-slate-900" />
@@ -657,17 +658,21 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
           {/* Toast Notification Banner for USB Scans */}
           {scanFeedback.message && (
             <div className={`absolute top-4 left-1/2 -translate-x-1/2 z-40 px-5 py-2.5 rounded-2xl shadow-2xl border font-mono text-xs font-extrabold flex items-center gap-2 animate-in fade-in zoom-in duration-200 ${
-              scanFeedback.status === 'error' ? 'bg-red-900 text-white border-red-700' : 'bg-slate-900 text-white border-slate-700'
+              scanFeedback.status === 'error' 
+                ? 'bg-red-900 text-white border-red-700' 
+                : scanFeedback.status === 'warning'
+                ? 'bg-amber-600 text-white border-amber-500 shadow-amber-900/50'
+                : 'bg-slate-900 text-white border-slate-700'
             }`}>
-              {scanFeedback.status === 'error' ? <AlertTriangle className="w-4 h-4 text-red-400" /> : <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
+              {scanFeedback.status === 'error' || scanFeedback.status === 'warning' 
+                ? <AlertTriangle className="w-4 h-4 text-white" /> 
+                : <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
               <span className="whitespace-pre-line text-center">{scanFeedback.message}</span>
             </div>
           )}
 
         </div>
       </main>
-
-      {/* 3. MINIMALIST LIGHT INDICATORS BAR (Bottom Bar with USB Scan Capture Input) */}
       <footer className="h-28 shrink-0 bg-white border-t border-[#DCE3EA] px-8 py-3 flex items-center justify-between z-20 shadow-sm gap-4">
         
         {/* Left: Large Circular Gauge & Coverage KPI */}

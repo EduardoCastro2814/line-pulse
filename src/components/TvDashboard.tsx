@@ -204,7 +204,8 @@ export const TvDashboard: React.FC = () => {
               statusEmoji, 
               statusBadgeText,
               statusColor,
-              isCoverageActive
+              isCoverageActive,
+              uncertifiedCount: uncertified
             } = metrics;
 
             const donutColor = statusColor;
@@ -258,9 +259,16 @@ export const TvDashboard: React.FC = () => {
 
                 {/* 4. Estado Indicador + 5. Tiempo Integración */}
                 <div className="flex justify-between items-center text-xs font-mono pt-2 border-t border-slate-100">
-                  <span className="font-extrabold text-[10px] uppercase tracking-wide flex items-center gap-1" style={{ color: statusColor }}>
-                    {statusBadgeText}
-                  </span>
+                  <div className="flex flex-col items-start">
+                    <span className="font-extrabold text-[10px] uppercase tracking-wide flex items-center gap-1" style={{ color: statusColor }}>
+                      {statusBadgeText}
+                    </span>
+                    {uncertified > 0 && (
+                      <span className="text-[9px] text-amber-600 font-black flex items-center gap-0.5 mt-0.5 animate-pulse">
+                        ⚠️ {uncertified} sin cert.
+                      </span>
+                    )}
+                  </div>
                   
                   <div className="flex flex-col items-end">
                     <span className="text-[10px] text-slate-600 font-extrabold flex items-center gap-1">

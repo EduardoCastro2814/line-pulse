@@ -151,11 +151,13 @@ export const ScannerDrawer: React.FC<ScannerDrawerProps> = ({ isOpen, onClose })
 
     const emp = employeesList.find(e => e.badge_id.trim() === badgeId.trim());
 
-    const { data: scanResult, error } = await supabase.from('escaneos').insert({
+    const { data: rawScanResult, error } = await supabase.from('escaneos').insert({
       badge_id: badgeId.trim(),
       line_id: selectedLine,
       event_type: eventType
     });
+
+    const scanResult = Array.isArray(rawScanResult) ? rawScanResult[0] : rawScanResult;
 
     if (error) {
       playBeep('error');
@@ -177,9 +179,14 @@ export const ScannerDrawer: React.FC<ScannerDrawerProps> = ({ isOpen, onClose })
       if (eventType === 'lunch_return') actionStr = 'REGRESO DE COMEDOR';
       if (eventType === 'shift_end') actionStr = 'FINALIZÓ TURNO';
 
+      let msg = `${scanResult.employee_name} - ${actionStr}`;
+      if (scanResult.warning_message) {
+        msg += `\n⚠️ ${scanResult.warning_message}`;
+      }
+
       setFeedback({
         status: 'success',
-        message: `${scanResult.employee_name} - ${actionStr}`,
+        message: msg,
         employeeName: scanResult.employee_name
       });
       loadData();
