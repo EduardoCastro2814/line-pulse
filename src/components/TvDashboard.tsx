@@ -57,6 +57,8 @@ export const TvDashboard: React.FC = () => {
   const [downtimes, setDowntimes] = useState<any[]>([]);
   const [posiciones, setPosiciones] = useState<any[]>([]);
   const [coverages, setCoverages] = useState<any[]>([]);
+  const [stationRequirements, setStationRequirements] = useState<any[]>([]);
+  const [trainingRecords, setTrainingRecords] = useState<any[]>([]);
   const [currentClock, setCurrentClock] = useState('');
   const [_tick, setTick] = useState(0);
   
@@ -118,6 +120,11 @@ export const TvDashboard: React.FC = () => {
 
       const { data: covData } = await supabase.from('coberturas').select('*');
       setCoverages(covData || []);
+
+      const { data: srData } = await supabase.from('station_requirements').select('*');
+      const { data: trData } = await supabase.from('training_records').select('*');
+      setStationRequirements(srData || []);
+      setTrainingRecords(trData || []);
     } catch (err) {
       console.error('Error loading TvDashboard data:', err);
     }
@@ -196,7 +203,7 @@ export const TvDashboard: React.FC = () => {
       <main className="flex-1 min-h-0 p-6 overflow-y-auto">
         <div className="flex flex-wrap gap-5 justify-center items-center h-full">
           {lines.map((line: any) => {
-            const metrics = calculateLineMetrics(line.id, posiciones, scans, coverages, lines);
+            const metrics = calculateLineMetrics(line.id, posiciones, scans, coverages, lines, stationRequirements, trainingRecords);
             const { 
               target, 
               scannedCount: present, 

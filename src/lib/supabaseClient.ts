@@ -862,7 +862,9 @@ export const calculateLineMetrics = (
   _posicionesList: any[],
   scansList: any[],
   coveragesList: any[] = [],
-  linesList: any[] = []
+  linesList: any[] = [],
+  stationReqsList?: any[],
+  trainingRecsList?: any[]
 ) => {
   const lineas = (linesList && linesList.length > 0) ? linesList : loadTable('lineas');
   const line = lineas.find((l: any) => l.id === lineId);
@@ -985,8 +987,12 @@ export const calculateLineMetrics = (
   });
 
   // C. Third pass: Evaluate certification
-  const stationReqs = loadTable('station_requirements');
-  const trainingRecs = loadTable('training_records');
+  const stationReqs = (stationReqsList && stationReqsList.length > 0)
+    ? stationReqsList
+    : loadTable('station_requirements');
+  const trainingRecs = (trainingRecsList && trainingRecsList.length > 0)
+    ? trainingRecsList
+    : loadTable('training_records');
 
   let certifiedCount = 0;
   let uncertifiedCount = 0;

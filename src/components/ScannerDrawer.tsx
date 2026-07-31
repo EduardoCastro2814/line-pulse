@@ -88,6 +88,8 @@ export const ScannerDrawer: React.FC<ScannerDrawerProps> = ({ isOpen, onClose })
     const { data: dbScans } = await supabase.from('escaneos').select('*').eq('line_id', selectedLine);
     const { data: dbCoverages } = await supabase.from('coberturas').select('*').eq('line_id', selectedLine);
     const { data: dbPositions } = await supabase.from('posiciones').select('*').eq('line_id', selectedLine);
+    const { data: dbStationReqs } = await supabase.from('station_requirements').select('*');
+    const { data: dbTrainingRecs } = await supabase.from('training_records').select('*');
 
     const cleanScans = (dbScans || []).map(mapScanFromSupabase);
     const metrics = calculateLineMetrics(
@@ -95,7 +97,9 @@ export const ScannerDrawer: React.FC<ScannerDrawerProps> = ({ isOpen, onClose })
       dbPositions || [], 
       cleanScans, 
       dbCoverages || [], 
-      lines
+      lines,
+      dbStationReqs || [],
+      dbTrainingRecs || []
     );
     const { target, scannedCount, activeShiftName } = metrics;
 
@@ -246,13 +250,17 @@ export const ScannerDrawer: React.FC<ScannerDrawerProps> = ({ isOpen, onClose })
         const latestClean = (latestScans || []).map(mapScanFromSupabase);
         const { data: latestPositions } = await supabase.from('posiciones').select('*, empleado:empleados(*)').eq('line_id', selectedLine);
         const { data: latestCoverages } = await supabase.from('coberturas').select('*').eq('line_id', selectedLine);
+        const { data: latestStationReqs } = await supabase.from('station_requirements').select('*');
+        const { data: latestTrainingRecs } = await supabase.from('training_records').select('*');
 
         const tempMetrics = calculateLineMetrics(
           selectedLine,
           latestPositions || [],
           latestClean,
           latestCoverages || [],
-          lines
+          lines,
+          latestStationReqs || [],
+          latestTrainingRecs || []
         );
 
         const matchedPos = Object.values(tempMetrics.positionsDetails || {}).find((d: any) => d.employee?.badge_id === badgeId.trim());

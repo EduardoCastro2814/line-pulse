@@ -21,6 +21,8 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
   const [areas, setAreas] = useState<any[]>([]);
   const [coverages, setCoverages] = useState<any[]>([]);
   const [posiciones, setPosiciones] = useState<any[]>([]);
+  const [stationRequirements, setStationRequirements] = useState<any[]>([]);
+  const [trainingRecords, setTrainingRecords] = useState<any[]>([]);
 
   // Filtering states for left list
   const [searchQuery, setSearchQuery] = useState('');
@@ -125,6 +127,11 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
       }
 
       const verifiedAreas = await ensureAreasExist(areasData || []);
+
+      const { data: srData } = await supabase.from('station_requirements').select('*');
+      const { data: trData } = await supabase.from('training_records').select('*');
+      setStationRequirements(srData || []);
+      setTrainingRecords(trData || []);
 
       setLines(linesData || []);
       setScans((scansData || []).map(mapScanFromSupabase));
@@ -533,7 +540,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
   let totalDowntimeToday = 0;
 
   lines.forEach((line: any) => {
-    const metrics = calculateLineMetrics(line.id, posiciones, scans, coverages, lines);
+    const metrics = calculateLineMetrics(line.id, posiciones, scans, coverages, lines, stationRequirements, trainingRecords);
     totalRequired += metrics.target;
     totalPresent += metrics.scannedCount;
     totalCertified += metrics.certifiedCount || 0;
@@ -657,7 +664,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
   const activeCoverages = coverages.filter(c => c.line_id === selectedLineId);
 
   const sampleLine = lines[0];
-  const sampleMetrics = sampleLine ? calculateLineMetrics(sampleLine.id, posiciones, scans, coverages, lines) : null;
+  const sampleMetrics = sampleLine ? calculateLineMetrics(sampleLine.id, posiciones, scans, coverages, lines, stationRequirements, trainingRecords) : null;
 
   return (
     <div className="bg-[#F5F7FA] text-slate-800 flex-grow h-full flex flex-col overflow-hidden p-4 space-y-4 font-sans select-none">
@@ -863,7 +870,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                   </tr>
                 ) : (
                   filteredLines.map((line: any) => {
-                    const metrics = calculateLineMetrics(line.id, posiciones, scans, coverages, lines);
+                    const metrics = calculateLineMetrics(line.id, posiciones, scans, coverages, lines, stationRequirements, trainingRecords);
                     const { target, scannedCount: present, coveragePct: pct, statusEmoji, statusColor, isCoverageActive } = metrics;
                     const integrationMin = getLineIntegrationTimeMinutes(line, scans);
                     const isSelected = selectedLineId === line.id;
@@ -1368,7 +1375,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                     </div>
 
                     {(() => {
-                      const metrics = calculateLineMetrics(selectedLineId || '', posiciones, scans, coverages, lines);
+                      const metrics = calculateLineMetrics(selectedLineId || '', posiciones, scans, coverages, lines, stationRequirements, trainingRecords);
                       const rawScansCount = metrics.validScansTodayShift;
                       const limit = metrics.target;
                       
@@ -1540,7 +1547,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                     <div className="h-44 w-full pointer-events-none">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={lines.map(line => {
-                          const m = calculateLineMetrics(line.id, posiciones, scans, coverages, lines);
+                          const m = calculateLineMetrics(line.id, posiciones, scans, coverages, lines, stationRequirements, trainingRecords);
                           return { name: line.name, cobertura: m.coveragePct };
                         })}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
@@ -1571,7 +1578,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                     <div className="h-44 w-full pointer-events-none">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={lines.map(line => {
-                          const m = calculateLineMetrics(line.id, posiciones, scans, coverages, lines);
+                          const m = calculateLineMetrics(line.id, posiciones, scans, coverages, lines, stationRequirements, trainingRecords);
                           return { name: line.name, 'Presentes': m.scannedCount, 'Requeridos': m.target };
                         })}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
@@ -1860,7 +1867,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                   <ResponsiveContainer width="100%" height="95%">
                     <BarChart 
                       data={lines.map(line => {
-                        const m = calculateLineMetrics(line.id, posiciones, scans, coverages, lines);
+                        const m = calculateLineMetrics(line.id, posiciones, scans, coverages, lines, stationRequirements, trainingRecords);
                         return { name: line.name, 'Cobertura %': m.coveragePct };
                       })} 
                       margin={{ top: 20, right: 30, left: 20, bottom: 20 }}
@@ -1879,7 +1886,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                   <ResponsiveContainer width="100%" height="95%">
                     <BarChart 
                       data={lines.map(line => {
-                        const m = calculateLineMetrics(line.id, posiciones, scans, coverages, lines);
+                        const m = calculateLineMetrics(line.id, posiciones, scans, coverages, lines, stationRequirements, trainingRecords);
                         return { name: line.name, 'Operadores Presentes': m.scannedCount, 'Plantilla Requerida': m.target };
                       })} 
                       margin={{ top: 20, right: 30, left: 20, bottom: 20 }}

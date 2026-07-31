@@ -160,7 +160,7 @@ export const ReportsView: React.FC = () => {
         if (selectedLine !== 'ALL' && line.id !== selectedLine) return;
         if (selectedArea !== 'ALL' && line.area_id !== selectedArea) return;
 
-        const metrics = calculateLineMetrics(line.id, posiciones, scans, coverages, lines);
+        const metrics = calculateLineMetrics(line.id, posiciones, scans, coverages, lines, stationRequirements, trainingRecords);
         const integrationMin = getLineIntegrationTimeMinutes(line, scans);
 
         rows.push({

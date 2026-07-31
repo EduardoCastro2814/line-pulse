@@ -77,6 +77,8 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
   const [posiciones, setPosiciones] = useState<any[]>([]);
   const [tiemposMuertos, setTiemposMuertos] = useState<any[]>([]);
   const [coberturas, setCoberturas] = useState<any[]>([]);
+  const [stationRequirements, setStationRequirements] = useState<any[]>([]);
+  const [trainingRecords, setTrainingRecords] = useState<any[]>([]);
   const [_tick, setTick] = useState(0);
 
   // Escaneos Ref to prevent stale closures in event listeners
@@ -188,6 +190,13 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
       // Load meal coverage windows
       const { data: covData } = await supabase.from('coberturas').select('*').eq('line_id', lineId);
       setCoberturas(covData || []);
+
+      // Load station requirements and training records
+      const { data: srData } = await supabase.from('station_requirements').select('*');
+      setStationRequirements(srData || []);
+
+      const { data: trData } = await supabase.from('training_records').select('*');
+      setTrainingRecords(trData || []);
     } catch (err) {
       console.warn('Handling empty line details in LineDetailsModal:', err);
     }
@@ -363,7 +372,7 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
         console.log('[SUPABASE INSERT EXITOSO]: Escaneo registrado correctamente en base de datos');
         
         // Calculate certification compliance in real-time
-        const tempMetrics = calculateLineMetrics(lineId, posiciones, updatedScansList, coberturas, [line]);
+        const tempMetrics = calculateLineMetrics(lineId, posiciones, updatedScansList, coberturas, [line], stationRequirements, trainingRecords);
         const matchedPos = Object.values(tempMetrics.positionsDetails || {}).find((d: any) => d.employee?.badge_id === cleanNum);
 
         if (eventType === 'TURN_START' || eventType === 'MEAL_COVERAGE') {
@@ -511,7 +520,7 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
   if (!isOpen || !line) return null;
 
   // Active Staffing Target & Coverage Calculations driven by UNIFIED calculateLineMetrics
-  const metrics = calculateLineMetrics(line.id, posiciones, escaneos, coberturas, [line]);
+  const metrics = calculateLineMetrics(line.id, posiciones, escaneos, coberturas, [line], stationRequirements, trainingRecords);
   const { 
     target, 
     scannedCount, 
