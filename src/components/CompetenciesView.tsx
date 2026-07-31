@@ -2,10 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { 
   Award, UploadCloud, Search, Trash2, ShieldCheck, 
   FileSpreadsheet, HelpCircle, CheckCircle2, AlertCircle,
-  Activity, ShieldAlert, Check, BookOpen
+  Activity, ShieldAlert, Check, BookOpen, Copy, Terminal, X
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { supabase, getLocalDateString, calculateLineMetrics, mapScanFromSupabase } from '../lib/supabaseClient';
+import { supabase, getLocalDateString, calculateLineMetrics, mapScanFromSupabase, isMock } from '../lib/supabaseClient';
 
 export const CompetenciesView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'matrix' | 'records' | 'validation'>('matrix');
@@ -18,7 +18,7 @@ export const CompetenciesView: React.FC = () => {
   const [records, setRecords] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Available trainings list (gathered from records and requirements)
+  // Available trainings list
   const [availableTrainings, setAvailableTrainings] = useState<string[]>([]);
 
   // Validation tab states
@@ -26,24 +26,123 @@ export const CompetenciesView: React.FC = () => {
   const [selectedLineIdValidation, setSelectedLineIdValidation] = useState<string>('');
   const [validationData, setValidationData] = useState<any>(null);
 
+  // Schema check states
+  const [missingTables, setMissingTables] = useState<string[]>([]);
+  const [dbChecked, setDbChecked] = useState(false);
+  const [isMigrationModalOpen, setIsMigrationModalOpen] = useState(false);
+
+  // SQL Script text for copy-pasting
+  const sqlMigrationScript = `-- 1. TABLA: STATIONS
+CREATE TABLE IF NOT EXISTS stations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(100) UNIQUE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+-- 2. TABLA: STATION_REQUIREMENTS
+CREATE TABLE IF NOT EXISTS station_requirements (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    station_name VARCHAR(100) NOT NULL,
+    training_name VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    UNIQUE(station_name, training_name)
+);
+
+-- 3. TABLA: TRAINING_RECORDS
+CREATE TABLE IF NOT EXISTS training_records (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    employee_number VARCHAR(50) NOT NULL,
+    employee_name VARCHAR(150) NOT NULL,
+    training_name VARCHAR(100) NOT NULL,
+    status VARCHAR(50) DEFAULT 'Completado' NOT NULL,
+    completion_date DATE DEFAULT CURRENT_DATE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    UNIQUE(employee_number, training_name)
+);
+
+-- 4. TABLA: EMPLOYEE_COMPETENCIES
+CREATE TABLE IF NOT EXISTS employee_competencies (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    employee_number VARCHAR(50) NOT NULL,
+    training_name VARCHAR(100) NOT NULL,
+    certified BOOLEAN DEFAULT TRUE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    UNIQUE(employee_number, training_name)
+);
+
+-- RLS POLICIES ENABLED FOR PUBLIC
+ALTER TABLE stations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE station_requirements ENABLE ROW LEVEL SECURITY;
+ALTER TABLE training_records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE employee_competencies ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Permitir todo a anon en stations" ON stations FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Permitir todo a anon en station_requirements" ON station_requirements FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Permitir todo a anon en training_records" ON training_records FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Permitir todo a anon en employee_competencies" ON employee_competencies FOR ALL USING (true) WITH CHECK (true);`;
+
+  // Check Supabase schema table availability
+  const checkDatabaseSchema = async () => {
+    if (isMock) {
+      setMissingTables([]);
+      setDbChecked(true);
+      return;
+    }
+
+    const tablesToCheck = ['station_requirements', 'training_records', 'stations', 'employee_competencies'];
+    const missing: string[] = [];
+
+    for (const table of tablesToCheck) {
+      try {
+        const { error } = await supabase.from(table).select('id').limit(1);
+        if (error) {
+          const msg = error.message?.toLowerCase() || '';
+          if (msg.includes('relation') && msg.includes('does not exist')) {
+            missing.push(table);
+          } else if (error.code === 'PGRST116' || error.code === '42P01') {
+            missing.push(table);
+          }
+        }
+      } catch (err) {
+        missing.push(table);
+      }
+    }
+
+    setMissingTables(missing);
+    setDbChecked(true);
+  };
+
   // Load foundational data
   const loadData = async () => {
     setLoading(true);
     try {
-      // 1. Fetch station requirements - Stations list comes exclusively from matrix requirements table
+      await checkDatabaseSchema();
+
+      // 1. Fetch stations list from catalog table
+      const { data: stationsData } = await supabase.from('stations').select('*').order('name', { ascending: true });
+      setStations(stationsData ? stationsData.map((s: any) => s.name) : []);
+
+      // 2. Fetch station requirements
       const { data: reqData } = await supabase.from('station_requirements').select('*');
       const reqList = reqData || [];
       setRequirements(reqList);
 
-      const distinctStations = Array.from(new Set(reqList.map((r: any) => r.station_name))).filter(Boolean) as string[];
-      setStations(distinctStations);
+      // If station list is empty in the database, fallback to unique station names in requirements
+      if (!stationsData || stationsData.length === 0) {
+        const reqStations = Array.from(new Set(reqList.map((r: any) => r.station_name))).filter(Boolean) as string[];
+        setStations(reqStations);
+      }
 
-      // 2. Fetch training records
+      // 3. Fetch training records
       const { data: recData } = await supabase.from('training_records').select('*').order('created_at', { ascending: false });
       const recList = recData || [];
       setRecords(recList);
 
-      // 3. Fetch lines for validation
+      // 4. Fetch lines for validation
       const { data: linesData } = await supabase.from('lineas').select('*').order('name', { ascending: true });
       setLinesList(linesData || []);
       if (linesData && linesData.length > 0 && !selectedLineIdValidation) {
@@ -66,7 +165,7 @@ export const CompetenciesView: React.FC = () => {
     loadData();
   }, []);
 
-  // Run validation checker whenever selected line or database records change
+  // Run validation checker
   const runValidation = async (lineId: string) => {
     if (!lineId) return;
     try {
@@ -94,8 +193,44 @@ export const CompetenciesView: React.FC = () => {
     setTimeout(() => setFeedback({ type: null, message: '' }), 5000);
   };
 
+  const handleCopySql = () => {
+    navigator.clipboard.writeText(sqlMigrationScript);
+    showFeedback('success', 'Código SQL copiado al portapapeles.');
+  };
+
+  const handleRunMigration = async () => {
+    setLoading(true);
+    try {
+      if (isMock) {
+        // Seeding inside localStorage mock storage
+        loadData();
+        showFeedback('success', 'Migración simulada ejecutada en almacenamiento local con éxito.');
+        return;
+      }
+
+      // Try running the SQL script via generic RPC if available
+      const { error } = await supabase.rpc('run_sql', { sql: sqlMigrationScript });
+      if (error) {
+        throw new Error(error.message || 'RPC execution failed');
+      }
+
+      showFeedback('success', 'Migración ejecutada con éxito. Las tablas se crearon correctamente.');
+      loadData();
+    } catch (err) {
+      console.warn('Could not run automatic migration directly via RPC:', err);
+      setIsMigrationModalOpen(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // 1. Station Requirements Matrix Spreadsheet Upload Parser
   const handleStationMatrixUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (missingTables.includes('station_requirements') || missingTables.includes('stations')) {
+      showFeedback('error', 'Carga bloqueada: faltan tablas requeridas en base de datos. Ejecute la migración primero.');
+      return;
+    }
+
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -108,18 +243,16 @@ export const CompetenciesView: React.FC = () => {
         const workbook = XLSX.read(dataBuffer, { type: 'array' });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
-        
-        // Read raw data grid as 2D array
         const rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
 
         if (rawRows.length < 2) {
-          showFeedback('error', 'El archivo debe contener al menos la fila de cabecera de estaciones y una fila de cursos.');
+          showFeedback('error', 'El archivo debe contener la fila de cabecera de estaciones y filas de cursos.');
           setLoading(false);
           return;
         }
 
         const headers = rawRows[0].map(h => String(h || '').trim());
-        const stationHeaders = headers.slice(1);
+        const stationHeaders = headers.slice(1).filter(Boolean);
 
         if (stationHeaders.length === 0) {
           showFeedback('error', 'No se encontraron columnas de estaciones en la cabecera.');
@@ -129,16 +262,13 @@ export const CompetenciesView: React.FC = () => {
 
         const parsedReqs: { station_name: string; training_name: string }[] = [];
 
-        // Traverse rows starting at index 1
         for (let r = 1; r < rawRows.length; r++) {
           const row = rawRows[r];
           if (!row || row.length === 0) continue;
 
-          // Column 0 holds the course name/id
           const trainingName = String(row[0] || '').trim();
           if (!trainingName) continue;
 
-          // Remaining columns hold mark checkmarks (e.g. "X") for requirements
           for (let c = 1; c < row.length; c++) {
             const cellVal = String(row[c] || '').trim().toLowerCase();
             if (cellVal === 'x' || cellVal === 'si' || cellVal === 'sí' || cellVal === 'yes' || cellVal === '1' || cellVal === '✔') {
@@ -154,22 +284,28 @@ export const CompetenciesView: React.FC = () => {
         }
 
         if (parsedReqs.length === 0) {
-          showFeedback('error', 'No se identificaron requerimientos de entrenamientos en las celdas (use "X" para marcar requerimientos).');
+          showFeedback('error', 'No se pudieron extraer requerimientos. Verifique el formato e intente de nuevo.');
           setLoading(false);
           return;
         }
 
-        // Delete existing requirements
+        // Save unique stations to catalog table
+        const stationsList = stationHeaders.map(name => ({ name }));
+        await supabase.from('stations').delete().neq('id', 'placeholder-uuid');
+        if (stationsList.length > 0) {
+          const { error: stErr } = await supabase.from('stations').insert(stationsList);
+          if (stErr) throw stErr;
+        }
+
+        // Save requirements
         await supabase.from('station_requirements').delete().neq('id', 'placeholder-uuid');
+        const { error: reqErr } = await supabase.from('station_requirements').insert(parsedReqs);
+        if (reqErr) throw reqErr;
 
-        // Insert new parsed requirements list
-        const { error } = await supabase.from('station_requirements').insert(parsedReqs);
-        if (error) throw error;
-
-        showFeedback('success', `Carga de matriz exitosa. Se guardaron ${parsedReqs.length} requerimientos para ${Array.from(new Set(parsedReqs.map(p => p.station_name))).length} estaciones.`);
+        showFeedback('success', `Carga de estaciones exitosa. Detectadas ${stationsList.length} estaciones y ${parsedReqs.length} mapeos de cursos.`);
         loadData();
       } catch (err: any) {
-        showFeedback('error', `Error al procesar el archivo de matriz de estaciones: ${err.message}`);
+        showFeedback('error', `Error al cargar archivo: ${err.message}`);
       } finally {
         setLoading(false);
         event.target.value = '';
@@ -181,6 +317,11 @@ export const CompetenciesView: React.FC = () => {
 
   // 2. Operator Trainings Spreadsheet Matrix Parser
   const handleOperatorRecordsUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (missingTables.includes('training_records') || missingTables.includes('employee_competencies')) {
+      showFeedback('error', 'Carga bloqueada: faltan tablas requeridas en base de datos. Ejecute la migración primero.');
+      return;
+    }
+
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -193,18 +334,16 @@ export const CompetenciesView: React.FC = () => {
         const workbook = XLSX.read(dataBuffer, { type: 'array' });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
-        
-        // Read raw data grid as 2D array
         const rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
 
         if (rawRows.length < 2) {
-          showFeedback('error', 'El archivo no contiene registros de empleados.');
+          showFeedback('error', 'El archivo no contiene registros de empleados suficientes.');
           setLoading(false);
           return;
         }
 
         const headers = rawRows[0].map(h => String(h || '').trim());
-        const courseHeaders = headers.slice(1);
+        const courseHeaders = headers.slice(1).filter(Boolean);
 
         if (courseHeaders.length === 0) {
           showFeedback('error', 'No se encontraron columnas de cursos en la cabecera.');
@@ -212,20 +351,13 @@ export const CompetenciesView: React.FC = () => {
           return;
         }
 
-        const parsedRecords: {
-          employee_number: string;
-          employee_name: string;
-          training_name: string;
-          status: string;
-          completion_date: string;
-        }[] = [];
+        const parsedRecords: any[] = [];
+        const parsedCompetencies: any[] = [];
 
-        // Traverse rows starting at index 1
         for (let r = 1; r < rawRows.length; r++) {
           const row = rawRows[r];
           if (!row || row.length === 0) continue;
 
-          // Column 0 holds Empleado ID / Badge
           const empNum = String(row[0] || '').trim();
           if (!empNum) continue;
 
@@ -243,28 +375,38 @@ export const CompetenciesView: React.FC = () => {
                   status: 'Completado',
                   completion_date: getLocalDateString(new Date())
                 });
+                parsedCompetencies.push({
+                  employee_number: empNum,
+                  training_name: trainingName,
+                  certified: true
+                });
               }
             }
           }
         }
 
         if (parsedRecords.length === 0) {
-          showFeedback('error', 'No se pudieron extraer registros. Verifique que las celdas contengan "X" o checkmarks.');
+          showFeedback('error', 'No se pudieron extraer entrenamientos. Use "X" para marcar cursos aprobados.');
           setLoading(false);
           return;
         }
 
-        // Delete existing training records
+        // Clean and save employee_competencies
+        await supabase.from('employee_competencies').delete().neq('id', 'placeholder-uuid');
+        if (parsedCompetencies.length > 0) {
+          const { error: ecErr } = await supabase.from('employee_competencies').insert(parsedCompetencies);
+          if (ecErr) throw ecErr;
+        }
+
+        // Clean and save training_records
         await supabase.from('training_records').delete().neq('id', 'placeholder-uuid');
+        const { error: recErr } = await supabase.from('training_records').insert(parsedRecords);
+        if (recErr) throw recErr;
 
-        // Insert new records
-        const { error } = await supabase.from('training_records').insert(parsedRecords);
-        if (error) throw error;
-
-        showFeedback('success', `Importación exitosa. Se registraron ${parsedRecords.length} entrenamientos completados.`);
+        showFeedback('success', `Carga exitosa. Registrados ${parsedRecords.length} entrenamientos aprobados.`);
         loadData();
       } catch (err: any) {
-        showFeedback('error', `Error al leer archivo de entrenamientos de operadores: ${err.message}`);
+        showFeedback('error', `Error al cargar archivo de operadores: ${err.message}`);
       } finally {
         setLoading(false);
         event.target.value = '';
@@ -293,8 +435,8 @@ export const CompetenciesView: React.FC = () => {
     if (!window.confirm('⚠️ ¿Está seguro de vaciar la tabla de entrenamientos? Se borrarán todos los registros históricos.')) return;
     setLoading(true);
     try {
-      const { error } = await supabase.from('training_records').delete().neq('id', 'placeholder-uuid');
-      if (error) throw error;
+      await supabase.from('employee_competencies').delete().neq('id', 'placeholder-uuid');
+      await supabase.from('training_records').delete().neq('id', 'placeholder-uuid');
       showFeedback('success', 'Se eliminaron todos los registros.');
       loadData();
     } catch (err: any) {
@@ -328,6 +470,29 @@ export const CompetenciesView: React.FC = () => {
         </div>
       )}
       
+      {/* DB SCHEMA STATUS NOTICE */}
+      {dbChecked && missingTables.length > 0 && (
+        <div className="bg-red-50 border-2 border-red-200 p-4 rounded-2xl flex flex-wrap items-center justify-between gap-4 shadow-sm shrink-0 animate-pulse">
+          <div className="flex items-center space-x-3">
+            <ShieldAlert className="w-6 h-6 text-red-600" />
+            <div>
+              <h4 className="text-xs font-black text-red-800 uppercase tracking-wide">Base de Datos Incompleta</h4>
+              <p className="text-[10px] text-red-600 font-semibold font-sans mt-0.5">
+                Faltan las siguientes tablas requeridas en Supabase: <span className="font-mono font-bold">{missingTables.join(', ')}</span>.
+                Se ha bloqueado el procesamiento de archivos hasta que ejecute la migración.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleRunMigration}
+            className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer flex items-center gap-1.5"
+          >
+            <Terminal className="w-4 h-4" />
+            <span>Ejecutar Migración</span>
+          </button>
+        </div>
+      )}
+
       {/* 1. HEADER BAR */}
       <div className="bg-white border border-[#DCE3EA] p-4 rounded-2xl flex flex-wrap items-center justify-between gap-4 shadow-sm shrink-0">
         <div className="flex items-center space-x-3">
@@ -427,21 +592,26 @@ export const CompetenciesView: React.FC = () => {
         {/* TAB 1: MATRIZ DE ESTACIONES */}
         {activeTab === 'matrix' && (
           <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-4 overflow-hidden">
-            {/* Left section: Import matrix tools */}
+            {/* Left: Import tool */}
             <div className="lg:col-span-4 bg-white border border-[#DCE3EA] rounded-2xl p-5 flex flex-col justify-between shadow-sm shrink-0">
               <div className="space-y-4 font-sans">
                 <h3 className="text-xs font-black uppercase text-slate-900 tracking-wider">Cargar Matriz de Estaciones</h3>
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  Importa el mapeo de cursos requeridos por estación utilizando archivos CSV o XLSX. El archivo cargado es la única fuente de información para definir los requerimientos y estaciones de las líneas.
+                  Importa el mapeo de cursos requeridos por estación utilizando archivos CSV o XLSX. La matriz cargada es la única fuente de información.
                 </p>
 
                 {/* File Dropzone */}
-                <label className="border-2 border-dashed border-[#DCE3EA] hover:border-[#005486] bg-slate-50 hover:bg-blue-50/10 rounded-2xl p-6 flex flex-col items-center text-center cursor-pointer transition-all group">
+                <label className={`border-2 border-dashed border-[#DCE3EA] rounded-2xl p-6 flex flex-col items-center text-center transition-all group ${
+                  missingTables.includes('station_requirements') || missingTables.includes('stations')
+                    ? 'bg-slate-100 opacity-50 cursor-not-allowed border-red-300'
+                    : 'bg-slate-50 hover:bg-blue-50/10 hover:border-[#005486] cursor-pointer'
+                }`}>
                   <input
                     type="file"
                     accept=".csv,.xlsx,.xls"
                     onChange={handleStationMatrixUpload}
                     className="hidden"
+                    disabled={missingTables.includes('station_requirements') || missingTables.includes('stations')}
                   />
                   <UploadCloud className="w-10 h-10 text-slate-400 group-hover:text-[#005486] transition-all animate-bounce" />
                   <span className="text-xs font-black text-slate-700 block mt-2">Seleccionar matriz de estaciones</span>
@@ -450,7 +620,7 @@ export const CompetenciesView: React.FC = () => {
 
                 {/* Import Template Guidelines */}
                 <div className="bg-[#F8FAFC] border border-slate-200 rounded-xl p-3 text-[11px] text-slate-600 space-y-2">
-                  <span className="font-bold text-slate-800 block">Estructura esperada:</span>
+                  <span className="font-bold text-slate-800 block">Estructura real esperada:</span>
                   <div className="grid grid-cols-4 gap-1 font-mono font-bold bg-white p-1.5 border rounded border-slate-100 text-center text-[10px]">
                     <div className="bg-blue-50 text-[#005486] rounded p-0.5" title="Nombre del curso">Curso ID</div>
                     <div className="bg-slate-50 text-slate-700 rounded p-0.5">AOI</div>
@@ -466,7 +636,7 @@ export const CompetenciesView: React.FC = () => {
               </div>
             </div>
 
-            {/* Right section: Station Grid layout */}
+            {/* Right: Station Grid */}
             <div className="lg:col-span-8 bg-white border border-[#DCE3EA] rounded-2xl flex flex-col overflow-hidden shadow-sm">
               <div className="p-3 border-b border-[#DCE3EA] bg-[#F5F7FA] flex items-center justify-between gap-2 shrink-0">
                 <span className="text-xs font-black uppercase text-slate-800 tracking-wider">Estaciones e Habilidades Requeridas ({stations.length})</span>
@@ -523,21 +693,26 @@ export const CompetenciesView: React.FC = () => {
         {/* TAB 2: ENTRENAMIENTOS OPERADORES */}
         {activeTab === 'records' && (
           <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-4 overflow-hidden">
-            {/* Left section: Import tools */}
+            {/* Left: Import records tool */}
             <div className="lg:col-span-4 bg-white border border-[#DCE3EA] rounded-2xl p-5 flex flex-col justify-between shadow-sm shrink-0">
               <div className="space-y-4 font-sans">
                 <h3 className="text-xs font-black uppercase text-slate-900 tracking-wider">Cargar Entrenamientos</h3>
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  Carga el historial de capacitación y certificaciones de los operadores. El archivo cargado es la única fuente de información y sobrescribe configuraciones manuales.
+                  Carga el historial de capacitación y certificaciones de los operadores. Los archivos cargados son la única fuente de información.
                 </p>
 
                 {/* File Dropzone */}
-                <label className="border-2 border-dashed border-[#DCE3EA] hover:border-[#005486] bg-slate-50 hover:bg-blue-50/10 rounded-2xl p-6 flex flex-col items-center text-center cursor-pointer transition-all group">
+                <label className={`border-2 border-dashed border-[#DCE3EA] rounded-2xl p-6 flex flex-col items-center text-center transition-all group ${
+                  missingTables.includes('training_records') || missingTables.includes('employee_competencies')
+                    ? 'bg-slate-100 opacity-50 cursor-not-allowed border-red-300'
+                    : 'bg-slate-50 hover:bg-blue-50/10 hover:border-[#005486] cursor-pointer'
+                }`}>
                   <input
                     type="file"
                     accept=".csv,.xlsx,.xls"
                     onChange={handleOperatorRecordsUpload}
                     className="hidden"
+                    disabled={missingTables.includes('training_records') || missingTables.includes('employee_competencies')}
                   />
                   <UploadCloud className="w-10 h-10 text-slate-400 group-hover:text-[#005486] transition-all animate-bounce" />
                   <span className="text-xs font-black text-slate-700 block mt-2">Seleccionar archivo de personal</span>
@@ -546,15 +721,15 @@ export const CompetenciesView: React.FC = () => {
 
                 {/* Import Template Guidelines */}
                 <div className="bg-[#F8FAFC] border border-slate-200 rounded-xl p-3 text-[11px] text-slate-600 space-y-2">
-                  <span className="font-bold text-slate-800 block">Estructura matriz obligatoria:</span>
+                  <span className="font-bold text-slate-800 block">Estructura real esperada:</span>
                   <div className="grid grid-cols-4 gap-1 font-mono font-bold bg-white p-1.5 border rounded border-slate-100 text-center text-[10px]">
                     <div className="bg-blue-50 text-[#005486] rounded p-0.5">#Empleado</div>
-                    <div className="bg-slate-50 text-slate-700 rounded p-0.5">CursoA</div>
-                    <div className="bg-slate-50 text-slate-700 rounded p-0.5">CursoB</div>
-                    <div className="bg-slate-50 text-slate-700 rounded p-0.5">CursoC</div>
+                    <div className="bg-slate-50 text-slate-700 rounded p-0.5">Curso1</div>
+                    <div className="bg-slate-50 text-slate-700 rounded p-0.5">Curso2</div>
+                    <div className="bg-slate-50 text-slate-700 rounded p-0.5">Curso3</div>
                   </div>
                   <ul className="list-disc pl-4 space-y-1 text-slate-500 text-[10px]">
-                    <li>Cabecera define cursos completados.</li>
+                    <li>Columnas representan cursos.</li>
                     <li>Filas corresponden a número de operador.</li>
                     <li>Marcar con <strong>X</strong> los completados.</li>
                   </ul>
@@ -570,7 +745,7 @@ export const CompetenciesView: React.FC = () => {
               </button>
             </div>
 
-            {/* Right section: History records table */}
+            {/* Right: History table */}
             <div className="lg:col-span-8 bg-white border border-[#DCE3EA] rounded-2xl flex flex-col overflow-hidden shadow-sm">
               <div className="p-3 border-b border-[#DCE3EA] bg-[#F5F7FA] flex items-center justify-between gap-3 shrink-0 flex-wrap">
                 <span className="text-xs font-black uppercase text-slate-800 tracking-wider">Historial de Certificaciones ({filteredRecords.length})</span>
@@ -806,6 +981,57 @@ export const CompetenciesView: React.FC = () => {
         )}
 
       </div>
+
+      {/* SQL MIGRATION MODAL DIALOG */}
+      {isMigrationModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="w-full max-w-2xl bg-white border border-[#DCE3EA] rounded-2xl shadow-2xl flex flex-col overflow-hidden max-h-[85vh]">
+            <div className="bg-[#005486] text-white p-4 flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-2">
+                <Terminal className="w-5 h-5 text-red-300" />
+                <div>
+                  <h3 className="text-sm font-black uppercase tracking-wider">Migración SQL Requerida</h3>
+                  <span className="text-[10px] text-white/70 block mt-0.5">Copie y ejecute este script en el SQL Editor de Supabase</span>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsMigrationModalOpen(false)}
+                className="p-1 rounded-lg bg-white/10 hover:bg-white/20 text-white/80 hover:text-white transition-all cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 flex-grow overflow-y-auto space-y-4">
+              <p className="text-xs text-slate-500 font-semibold leading-relaxed font-sans">
+                Para configurar el módulo de competencias y poder subir matrices de Excel/CSV, su base de datos Supabase requiere crear las tablas relacionales de competencias. Ejecute el siguiente script SQL en su consola de Supabase:
+              </p>
+              
+              <div className="relative border border-[#DCE3EA] rounded-xl overflow-hidden bg-slate-900">
+                <button
+                  onClick={handleCopySql}
+                  className="absolute top-3 right-3 bg-white/10 hover:bg-white/20 text-white/90 px-3 py-1.5 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Copiar SQL</span>
+                </button>
+                <pre className="p-4 pt-12 overflow-x-auto text-[10px] text-emerald-300 font-mono leading-relaxed select-text max-h-[280px]">
+                  {sqlMigrationScript}
+                </pre>
+              </div>
+            </div>
+
+            <div className="p-4 bg-[#F5F7FA] border-t border-[#DCE3EA] flex justify-end gap-2 shrink-0">
+              <button
+                onClick={() => setIsMigrationModalOpen(false)}
+                className="px-5 py-2 bg-[#005486] hover:bg-[#003f66] text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
+              >
+                <span>Entendido / Cerrar</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

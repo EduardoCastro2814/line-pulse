@@ -30,6 +30,8 @@ export const loadTable = (tableName: string): any[] => {
       localStorage.removeItem(getStorageKey('posiciones'));
       localStorage.removeItem(getStorageKey('training_records'));
       localStorage.removeItem(getStorageKey('station_requirements'));
+      localStorage.removeItem(getStorageKey('stations'));
+      localStorage.removeItem(getStorageKey('employee_competencies'));
       // Fall through to seed
     } else {
       return parsed;
@@ -441,6 +443,18 @@ function getSeedData(): Record<string, any[]> {
     { id: 'tr-12', employee_number: '100111', employee_name: 'Sofía Ortiz', training_name: 'SMT Básico', status: 'Completado', completion_date: '2026-01-15' }
   ];
 
+  const stations = Array.from(new Set(station_requirements.map(r => r.station_name))).map(name => ({
+    id: `st-${name.toLowerCase().replace(/\s+/g, '-')}`,
+    name
+  }));
+
+  const employee_competencies = training_records.map(tr => ({
+    id: `ec-${tr.employee_number}-${tr.training_name.toLowerCase().replace(/\s+/g, '-')}`,
+    employee_number: tr.employee_number,
+    training_name: tr.training_name,
+    certified: true
+  }));
+
   return {
     areas,
     turnos,
@@ -453,7 +467,9 @@ function getSeedData(): Record<string, any[]> {
     coberturas,
     historial_eventos,
     station_requirements,
-    training_records
+    training_records,
+    stations,
+    employee_competencies
   };
 }
 

@@ -67,7 +67,7 @@ export const ConfigurationModal: React.FC<ConfigurationModalProps> = ({ isOpen, 
     const { data: assignData } = await supabase.from('empleados_linea').select('*, empleado:empleados(*)');
     const { data: covData } = await supabase.from('coberturas').select('*');
     const { data: posData } = await supabase.from('posiciones').select('*, empleado:empleados(*)');
-    const { data: reqData } = await supabase.from('station_requirements').select('station_name');
+    const { data: stationsData } = await supabase.from('stations').select('name');
 
     if (linesData) {
       setLines(linesData);
@@ -81,7 +81,7 @@ export const ConfigurationModal: React.FC<ConfigurationModalProps> = ({ isOpen, 
     if (covData) setCoverages(covData);
     if (posData) setPosiciones(posData);
 
-    const distinctStations = Array.from(new Set(reqData ? reqData.map((r: any) => r.station_name as string) : [])) as string[];
+    const distinctStations = (stationsData || []).map((s: any) => s.name as string);
     setAvailableStations(distinctStations);
   };
 
