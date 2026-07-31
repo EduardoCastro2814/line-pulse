@@ -179,17 +179,6 @@ export const ScannerDrawer: React.FC<ScannerDrawerProps> = ({ isOpen, onClose })
       if (eventType === 'lunch_return') actionStr = 'REGRESO DE COMEDOR';
       if (eventType === 'shift_end') actionStr = 'FINALIZÓ TURNO';
 
-      let msg = `${scanResult.employee_name} - ${actionStr}`;
-      if (scanResult.warning_message) {
-        msg += `\n⚠️ ${scanResult.warning_message}`;
-      }
-
-      setFeedback({
-        status: 'success',
-        message: msg,
-        employeeName: scanResult.employee_name
-      });
-
       // --- POSITION ASSOCIATION LOGIC ---
       try {
         const { data: empRes } = await supabase.from('empleados').select('*').eq('badge_id', badgeId.trim());
@@ -249,6 +238,38 @@ export const ScannerDrawer: React.FC<ScannerDrawerProps> = ({ isOpen, onClose })
       } catch (posErr) {
         console.error('Error updating position in ScannerDrawer:', posErr);
       }
+
+      // Check validation compliance for check-ins
+      let msg = `${scanResult.employee_name} - ${actionStr}`;
+      if (eventType === 'shift_start' || eventType === 'lunch_return') {
+        const { data: latestScans } = await supabase.from('escaneos').select('*').eq('line_id', selectedLine);
+        const latestClean = (latestScans || []).map(mapScanFromSupabase);
+        const { data: latestPositions } = await supabase.from('posiciones').select('*, empleado:empleados(*)').eq('line_id', selectedLine);
+        const { data: latestCoverages } = await supabase.from('coberturas').select('*').eq('line_id', selectedLine);
+
+        const tempMetrics = calculateLineMetrics(
+          selectedLine,
+          latestPositions || [],
+          latestClean,
+          latestCoverages || [],
+          lines
+        );
+
+        const matchedPos = Object.values(tempMetrics.positionsDetails || {}).find((d: any) => d.employee?.badge_id === badgeId.trim());
+        if (matchedPos) {
+          if (matchedPos.isCertified) {
+            msg += `\n✅ Operador certificado para la estación.`;
+          } else {
+            msg += `\n⚠ Operador sin entrenamiento requerido para esta estación.\nCursos faltantes: ${matchedPos.missingTrainings.join(', ')}`;
+          }
+        }
+      }
+
+      setFeedback({
+        status: 'success',
+        message: msg,
+        employeeName: scanResult.employee_name
+      });
 
       loadData();
     }

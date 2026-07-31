@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Award, UploadCloud, Search, Trash2, ShieldCheck, 
-  FileSpreadsheet, HelpCircle, CheckCircle2, AlertCircle, Edit2, Plus, X,
+  FileSpreadsheet, HelpCircle, CheckCircle2, AlertCircle,
   Activity, ShieldAlert, Check, BookOpen
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -18,14 +18,6 @@ export const CompetenciesView: React.FC = () => {
   const [records, setRecords] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Editing matrix state
-  const [isEditMatrixOpen, setIsEditMatrixOpen] = useState(false);
-  const [editingStation, setEditingStation] = useState('');
-  const [selectedTrainings, setSelectedTrainings] = useState<string[]>([]);
-  const [newTrainingInput, setNewTrainingInput] = useState('');
-  const [customStationName, setCustomStationName] = useState('');
-  const [isAddStationOpen, setIsAddStationOpen] = useState(false);
-
   // Available trainings list (gathered from records and requirements)
   const [availableTrainings, setAvailableTrainings] = useState<string[]>([]);
 
@@ -38,26 +30,20 @@ export const CompetenciesView: React.FC = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      // 1. Fetch positions to gather all unique station names configured on lines
-      const { data: posData } = await supabase.from('posiciones').select('station_name');
-      const positionsStations = posData ? posData.map((p: any) => p.station_name).filter(Boolean) : [];
-      
-      // Standard initial stations
-      const defaultStations = ['Stencil', 'SPI', 'Siplace 01', 'Siplace 02', 'AOI', 'Horno Reflow', 'Rayos X', 'Empaque', 'Test'];
-      
-      // Combine and get distinct
-      const allDistinctStations = Array.from(new Set([...defaultStations, ...positionsStations]));
-      setStations(allDistinctStations);
-
-      // 2. Fetch station requirements
+      // 1. Fetch station requirements - Stations list comes exclusively from matrix requirements table
       const { data: reqData } = await supabase.from('station_requirements').select('*');
-      setRequirements(reqData || []);
+      const reqList = reqData || [];
+      setRequirements(reqList);
 
-      // 3. Fetch training records
+      const distinctStations = Array.from(new Set(reqList.map((r: any) => r.station_name))).filter(Boolean) as string[];
+      setStations(distinctStations);
+
+      // 2. Fetch training records
       const { data: recData } = await supabase.from('training_records').select('*').order('created_at', { ascending: false });
-      setRecords(recData || []);
+      const recList = recData || [];
+      setRecords(recList);
 
-      // 4. Fetch lines for validation
+      // 3. Fetch lines for validation
       const { data: linesData } = await supabase.from('lineas').select('*').order('name', { ascending: true });
       setLinesList(linesData || []);
       if (linesData && linesData.length > 0 && !selectedLineIdValidation) {
@@ -65,9 +51,9 @@ export const CompetenciesView: React.FC = () => {
       }
 
       // Gather distinct training names
-      const reqTrainings = reqData ? reqData.map((r: any) => r.training_name) : [];
-      const recTrainings = recData ? recData.map((r: any) => r.training_name) : [];
-      const allTrainings = Array.from(new Set(['SMT Básico', 'SPI', 'Siplace', 'AOI', 'Certificación Rayos X', 'Empaque', 'Test', ...reqTrainings, ...recTrainings])).filter(Boolean);
+      const reqTrainings = reqList.map((r: any) => r.training_name);
+      const recTrainings = recList.map((r: any) => r.training_name);
+      const allTrainings = Array.from(new Set([...reqTrainings, ...recTrainings])).filter(Boolean) as string[];
       setAvailableTrainings(allTrainings);
     } catch (err) {
       console.error('Error loading competencies data:', err);
@@ -80,7 +66,7 @@ export const CompetenciesView: React.FC = () => {
     loadData();
   }, []);
 
-  // Run validation checker whenever tab selected or configuration changes
+  // Run validation checker whenever selected line or database records change
   const runValidation = async (lineId: string) => {
     if (!lineId) return;
     try {
@@ -108,75 +94,7 @@ export const CompetenciesView: React.FC = () => {
     setTimeout(() => setFeedback({ type: null, message: '' }), 5000);
   };
 
-  // Matrix management functions
-  const handleOpenEditMatrix = (station: string) => {
-    setEditingStation(station);
-    const currentReqs = requirements.filter(r => r.station_name === station).map(r => r.training_name);
-    setSelectedTrainings(currentReqs);
-    setIsEditMatrixOpen(true);
-  };
-
-  const handleSaveMatrix = async () => {
-    if (!editingStation) return;
-    setLoading(true);
-    try {
-      // 1. Delete existing requirements for this station
-      await supabase.from('station_requirements').delete().eq('station_name', editingStation);
-
-      // 2. Insert new requirements
-      if (selectedTrainings.length > 0) {
-        const payload = selectedTrainings.map(t => ({
-          station_name: editingStation,
-          training_name: t
-        }));
-        const { error } = await supabase.from('station_requirements').insert(payload);
-        if (error) throw error;
-      }
-      
-      showFeedback('success', `Requerimientos guardados para la estación: ${editingStation}`);
-      setIsEditMatrixOpen(false);
-      loadData();
-    } catch (err: any) {
-      showFeedback('error', `Error al guardar matriz: ${err.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleAddTrainingToSelection = () => {
-    const trimmed = newTrainingInput.trim();
-    if (!trimmed) return;
-    if (!selectedTrainings.includes(trimmed)) {
-      setSelectedTrainings([...selectedTrainings, trimmed]);
-      if (!availableTrainings.includes(trimmed)) {
-        setAvailableTrainings([...availableTrainings, trimmed]);
-      }
-    }
-    setNewTrainingInput('');
-  };
-
-  const handleToggleTrainingSelection = (training: string) => {
-    if (selectedTrainings.includes(training)) {
-      setSelectedTrainings(selectedTrainings.filter(t => t !== training));
-    } else {
-      setSelectedTrainings([...selectedTrainings, training]);
-    }
-  };
-
-  const handleAddCustomStation = () => {
-    const trimmed = customStationName.trim();
-    if (!trimmed) return;
-    if (stations.includes(trimmed)) {
-      showFeedback('error', 'La estación ya existe en la matriz.');
-      return;
-    }
-    setStations([...stations, trimmed]);
-    setCustomStationName('');
-    setIsAddStationOpen(false);
-    handleOpenEditMatrix(trimmed);
-  };
-
-  // 1. Station Course Requirements Matrix spreadsheet upload parser
+  // 1. Station Requirements Matrix Spreadsheet Upload Parser
   const handleStationMatrixUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -195,7 +113,7 @@ export const CompetenciesView: React.FC = () => {
         const rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
 
         if (rawRows.length < 2) {
-          showFeedback('error', 'El archivo debe contener al menos una fila de cabecera de estaciones y filas de cursos.');
+          showFeedback('error', 'El archivo debe contener al menos la fila de cabecera de estaciones y una fila de cursos.');
           setLoading(false);
           return;
         }
@@ -204,7 +122,7 @@ export const CompetenciesView: React.FC = () => {
         const stationHeaders = headers.slice(1);
 
         if (stationHeaders.length === 0) {
-          showFeedback('error', 'No se encontraron columnas de estaciones configuradas en el archivo.');
+          showFeedback('error', 'No se encontraron columnas de estaciones en la cabecera.');
           setLoading(false);
           return;
         }
@@ -216,7 +134,7 @@ export const CompetenciesView: React.FC = () => {
           const row = rawRows[r];
           if (!row || row.length === 0) continue;
 
-          // First column holds the course name/id
+          // Column 0 holds the course name/id
           const trainingName = String(row[0] || '').trim();
           if (!trainingName) continue;
 
@@ -236,7 +154,7 @@ export const CompetenciesView: React.FC = () => {
         }
 
         if (parsedReqs.length === 0) {
-          showFeedback('error', 'No se pudieron extraer requerimientos. Verifique que las celdas contengan "X" o checkmarks.');
+          showFeedback('error', 'No se identificaron requerimientos de entrenamientos en las celdas (use "X" para marcar requerimientos).');
           setLoading(false);
           return;
         }
@@ -248,7 +166,7 @@ export const CompetenciesView: React.FC = () => {
         const { error } = await supabase.from('station_requirements').insert(parsedReqs);
         if (error) throw error;
 
-        showFeedback('success', `Carga de cabecera exitosa. Se guardaron ${parsedReqs.length} requerimientos para ${Array.from(new Set(parsedReqs.map(p => p.station_name))).length} estaciones.`);
+        showFeedback('success', `Carga de matriz exitosa. Se guardaron ${parsedReqs.length} requerimientos para ${Array.from(new Set(parsedReqs.map(p => p.station_name))).length} estaciones.`);
         loadData();
       } catch (err: any) {
         showFeedback('error', `Error al procesar el archivo de matriz de estaciones: ${err.message}`);
@@ -261,7 +179,7 @@ export const CompetenciesView: React.FC = () => {
     reader.readAsArrayBuffer(file);
   };
 
-  // 2. Operator Trainings Excel/CSV Upload Parser (Supports logs list and matrix checkmark formats)
+  // 2. Operator Trainings Spreadsheet Matrix Parser
   const handleOperatorRecordsUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -276,21 +194,25 @@ export const CompetenciesView: React.FC = () => {
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
         
-        // Read raw data grid as 2D array to inspect headers
+        // Read raw data grid as 2D array
         const rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
 
         if (rawRows.length < 2) {
-          showFeedback('error', 'El archivo no contiene registros suficientes.');
+          showFeedback('error', 'El archivo no contiene registros de empleados.');
           setLoading(false);
           return;
         }
 
-        const headers = rawRows[0].map(h => String(h || '').trim().toLowerCase());
-        
-        // Check if list log format or matrix checkmark format
-        const isListFormat = headers.includes('curso') || headers.includes('entrenamiento') || headers.includes('training') || headers.includes('course') || headers.includes('training_name');
+        const headers = rawRows[0].map(h => String(h || '').trim());
+        const courseHeaders = headers.slice(1);
 
-        let parsedRecords: {
+        if (courseHeaders.length === 0) {
+          showFeedback('error', 'No se encontraron columnas de cursos en la cabecera.');
+          setLoading(false);
+          return;
+        }
+
+        const parsedRecords: {
           employee_number: string;
           employee_name: string;
           training_name: string;
@@ -298,103 +220,48 @@ export const CompetenciesView: React.FC = () => {
           completion_date: string;
         }[] = [];
 
-        if (isListFormat) {
-          // List log format (row-by-row log)
-          const jsonRows = XLSX.utils.sheet_to_json(worksheet);
-          const mapRow = (row: any) => {
-            const keys = Object.keys(row);
-            const getVal = (synonyms: string[]) => {
-              const matchKey = keys.find(k => synonyms.includes(k.toLowerCase().trim()));
-              return matchKey ? String(row[matchKey]).trim() : '';
-            };
+        // Traverse rows starting at index 1
+        for (let r = 1; r < rawRows.length; r++) {
+          const row = rawRows[r];
+          if (!row || row.length === 0) continue;
 
-            return {
-              employee_number: getVal(['número empleado', 'numero empleado', 'número', 'numero', 'badge', 'badge id', 'employee number', 'employee_number', 'gafete', 'gafete id']),
-              employee_name: getVal(['nombre', 'nombre empleado', 'nombre completo', 'name', 'employee name', 'employee_name']),
-              training_name: getVal(['curso', 'entrenamiento', 'capacitacion', 'capacitación', 'training', 'course', 'training_name']),
-              completion_date: getVal(['fecha', 'fecha completado', 'fecha curso', 'date', 'completion date', 'completion_date']),
-              status: getVal(['estado', 'estatus', 'status', 'completado'])
-            };
-          };
+          // Column 0 holds Empleado ID / Badge
+          const empNum = String(row[0] || '').trim();
+          if (!empNum) continue;
 
-          parsedRecords = jsonRows.map(mapRow)
-            .filter(r => r.employee_number && r.training_name)
-            .map(r => ({
-              employee_number: r.employee_number,
-              employee_name: r.employee_name || `Empleado #${r.employee_number}`,
-              training_name: r.training_name,
-              status: r.status || 'Completado',
-              completion_date: r.completion_date || getLocalDateString(new Date())
-            }));
-        } else {
-          // Matrix checkmark format
-          // Col 0 holds Empleado ID / Badge, Cols 1..n hold course headers
-          const courseHeaders = rawRows[0].slice(1).map(c => String(c || '').trim());
+          const empName = `Empleado #${empNum}`;
 
-          for (let r = 1; r < rawRows.length; r++) {
-            const row = rawRows[r];
-            if (!row || row.length === 0) continue;
-
-            const empNum = String(row[0] || '').trim();
-            if (!empNum) continue;
-
-            const empName = `Empleado #${empNum}`;
-
-            for (let c = 1; c < row.length; c++) {
-              const cellVal = String(row[c] || '').trim().toLowerCase();
-              if (cellVal === 'x' || cellVal === 'si' || cellVal === 'sí' || cellVal === 'yes' || cellVal === '1' || cellVal === '✔') {
-                const trainingName = courseHeaders[c - 1];
-                if (trainingName) {
-                  parsedRecords.push({
-                    employee_number: empNum,
-                    employee_name: empName,
-                    training_name: trainingName,
-                    status: 'Completado',
-                    completion_date: getLocalDateString(new Date())
-                  });
-                }
+          for (let c = 1; c < row.length; c++) {
+            const cellVal = String(row[c] || '').trim().toLowerCase();
+            if (cellVal === 'x' || cellVal === 'si' || cellVal === 'sí' || cellVal === 'yes' || cellVal === '1' || cellVal === '✔') {
+              const trainingName = headers[c];
+              if (trainingName) {
+                parsedRecords.push({
+                  employee_number: empNum,
+                  employee_name: empName,
+                  training_name: trainingName,
+                  status: 'Completado',
+                  completion_date: getLocalDateString(new Date())
+                });
               }
             }
           }
         }
 
         if (parsedRecords.length === 0) {
-          showFeedback('error', 'No se pudieron extraer registros. Compruebe la estructura y cabeceras del archivo.');
+          showFeedback('error', 'No se pudieron extraer registros. Verifique que las celdas contengan "X" o checkmarks.');
           setLoading(false);
           return;
         }
 
-        let updatedCount = 0;
-        let insertedCount = 0;
+        // Delete existing training records
+        await supabase.from('training_records').delete().neq('id', 'placeholder-uuid');
 
-        for (const record of parsedRecords) {
-          // Verify and save to Supabase / Local Storage
-          const { data: existing } = await supabase
-            .from('training_records')
-            .select('*')
-            .eq('employee_number', record.employee_number)
-            .eq('training_name', record.training_name);
+        // Insert new records
+        const { error } = await supabase.from('training_records').insert(parsedRecords);
+        if (error) throw error;
 
-          if (existing && existing.length > 0) {
-            const { error } = await supabase
-              .from('training_records')
-              .update({
-                employee_name: record.employee_name,
-                status: record.status,
-                completion_date: record.completion_date
-              })
-              .eq('employee_number', record.employee_number)
-              .eq('training_name', record.training_name);
-            if (!error) updatedCount++;
-          } else {
-            const { error } = await supabase
-              .from('training_records')
-              .insert(record);
-            if (!error) insertedCount++;
-          }
-        }
-
-        showFeedback('success', `Importación exitosa. Agregados: ${insertedCount}, Actualizados: ${updatedCount}`);
+        showFeedback('success', `Importación exitosa. Se registraron ${parsedRecords.length} entrenamientos completados.`);
         loadData();
       } catch (err: any) {
         showFeedback('error', `Error al leer archivo de entrenamientos de operadores: ${err.message}`);
@@ -447,6 +314,9 @@ export const CompetenciesView: React.FC = () => {
       r.status.toLowerCase().includes(query)
     );
   });
+
+  // Calculate unique employees count
+  const uniqueEmployeesCount = Array.from(new Set(records.map(r => r.employee_number))).length;
 
   return (
     <div className="bg-[#F5F7FA] text-slate-800 flex-grow h-full flex flex-col overflow-hidden p-4 space-y-4 select-none font-sans relative">
@@ -508,6 +378,39 @@ export const CompetenciesView: React.FC = () => {
         </div>
       </div>
 
+      {/* 2. SUMMARY STATS CARDS BAR (VISUALIZACIÓN) */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 shrink-0">
+        <div className="bg-white border border-[#DCE3EA] rounded-2xl p-4 shadow-sm flex items-center space-x-3.5 hover:shadow-md transition-all">
+          <div className="p-3 bg-blue-50 text-[#005486] rounded-xl border border-blue-100">
+            <BookOpen className="w-5 h-5" />
+          </div>
+          <div>
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Estaciones Detectadas</span>
+            <span className="text-xl font-black font-mono text-slate-800">{stations.length}</span>
+          </div>
+        </div>
+        
+        <div className="bg-white border border-[#DCE3EA] rounded-2xl p-4 shadow-sm flex items-center space-x-3.5 hover:shadow-md transition-all">
+          <div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl border border-indigo-100">
+            <Award className="w-5 h-5" />
+          </div>
+          <div>
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Cursos Detectados</span>
+            <span className="text-xl font-black font-mono text-slate-800">{availableTrainings.length}</span>
+          </div>
+        </div>
+
+        <div className="bg-white border border-[#DCE3EA] rounded-2xl p-4 shadow-sm flex items-center space-x-3.5 hover:shadow-md transition-all">
+          <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl border border-emerald-100">
+            <CheckCircle2 className="w-5 h-5" />
+          </div>
+          <div>
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Empleados Cargados</span>
+            <span className="text-xl font-black font-mono text-slate-800">{uniqueEmployeesCount}</span>
+          </div>
+        </div>
+      </div>
+
       {/* FEEDBACK TOAST */}
       {feedback.message && (
         <div className={`p-3 rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm shrink-0 ${
@@ -518,18 +421,18 @@ export const CompetenciesView: React.FC = () => {
         </div>
       )}
 
-      {/* 2. TAB VIEWPORT CONTENT */}
+      {/* 3. TAB VIEWPORT CONTENT */}
       <div className="flex-1 min-h-0 flex overflow-hidden">
         
         {/* TAB 1: MATRIZ DE ESTACIONES */}
         {activeTab === 'matrix' && (
           <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-4 overflow-hidden">
-            {/* Left section: Import tools */}
+            {/* Left section: Import matrix tools */}
             <div className="lg:col-span-4 bg-white border border-[#DCE3EA] rounded-2xl p-5 flex flex-col justify-between shadow-sm shrink-0">
-              <div className="space-y-4">
+              <div className="space-y-4 font-sans">
                 <h3 className="text-xs font-black uppercase text-slate-900 tracking-wider">Cargar Matriz de Estaciones</h3>
-                <p className="text-xs text-slate-500 leading-relaxed font-sans">
-                  Importa el mapeo de cursos requeridos por estación utilizando archivos CSV o XLSX. La matriz asocia cada estación a sus habilidades requeridas.
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Importa el mapeo de cursos requeridos por estación utilizando archivos CSV o XLSX. El archivo cargado es la única fuente de información para definir los requerimientos y estaciones de las líneas.
                 </p>
 
                 {/* File Dropzone */}
@@ -546,7 +449,7 @@ export const CompetenciesView: React.FC = () => {
                 </label>
 
                 {/* Import Template Guidelines */}
-                <div className="bg-[#F8FAFC] border border-slate-200 rounded-xl p-3 text-[11px] text-slate-600 space-y-2 font-sans">
+                <div className="bg-[#F8FAFC] border border-slate-200 rounded-xl p-3 text-[11px] text-slate-600 space-y-2">
                   <span className="font-bold text-slate-800 block">Estructura esperada:</span>
                   <div className="grid grid-cols-4 gap-1 font-mono font-bold bg-white p-1.5 border rounded border-slate-100 text-center text-[10px]">
                     <div className="bg-blue-50 text-[#005486] rounded p-0.5" title="Nombre del curso">Curso ID</div>
@@ -567,59 +470,51 @@ export const CompetenciesView: React.FC = () => {
             <div className="lg:col-span-8 bg-white border border-[#DCE3EA] rounded-2xl flex flex-col overflow-hidden shadow-sm">
               <div className="p-3 border-b border-[#DCE3EA] bg-[#F5F7FA] flex items-center justify-between gap-2 shrink-0">
                 <span className="text-xs font-black uppercase text-slate-800 tracking-wider">Estaciones e Habilidades Requeridas ({stations.length})</span>
-                <button
-                  onClick={() => setIsAddStationOpen(true)}
-                  className="bg-[#005486] hover:bg-[#003f66] text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>+ Agregar Estación</span>
-                </button>
               </div>
 
               <div className="flex-grow overflow-y-auto p-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                  {stations.map(station => {
-                    const reqs = requirements.filter(r => r.station_name === station).map(r => r.training_name);
-                    return (
-                      <div 
-                        key={station}
-                        className="border border-[#DCE3EA] rounded-2xl p-4 flex flex-col justify-between hover:shadow-md bg-white transition-all group"
-                      >
-                        <div>
-                          <div className="flex justify-between items-center border-b border-slate-100 pb-2 mb-2">
-                            <span className="font-mono font-black text-slate-900 uppercase tracking-wide">{station}</span>
-                            <span className="text-[10px] bg-blue-50 text-[#005486] font-bold px-2 py-0.5 rounded-md">
-                              {reqs.length} Curso{reqs.length === 1 ? '' : 's'}
-                            </span>
-                          </div>
-
-                          {reqs.length > 0 ? (
-                            <div className="flex flex-wrap gap-1.5 my-2">
-                              {reqs.map(r => (
-                                <span key={r} className="text-[10px] bg-slate-100 text-slate-700 font-semibold px-2.5 py-0.5 rounded-lg border border-slate-200">
-                                  {r}
-                                </span>
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="text-xs text-slate-400 italic py-2 flex items-center gap-1">
-                              <HelpCircle className="w-3.5 h-3.5" />
-                              <span>Sin entrenamientos configurados</span>
-                            </div>
-                          )}
-                        </div>
-
-                        <button
-                          onClick={() => handleOpenEditMatrix(station)}
-                          className="mt-3 w-full border border-slate-200 hover:border-[#005486] text-slate-600 hover:text-[#005486] py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1 bg-[#F8FAFC] hover:bg-blue-50/30"
+                {stations.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-slate-400 py-16">
+                    <ShieldAlert className="w-12 h-12 mb-2 animate-pulse" />
+                    <span className="text-xs italic font-semibold">Cargue un archivo de matriz de estaciones para ver configuraciones</span>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {stations.map(station => {
+                      const reqs = requirements.filter(r => r.station_name === station).map(r => r.training_name);
+                      return (
+                        <div 
+                          key={station}
+                          className="border border-[#DCE3EA] rounded-2xl p-4 flex flex-col justify-between hover:shadow-md bg-white transition-all group"
                         >
-                          <Edit2 className="w-3 h-3" />
-                          <span>Configurar Entrenamientos</span>
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
+                          <div>
+                            <div className="flex justify-between items-center border-b border-slate-100 pb-2 mb-2">
+                              <span className="font-mono font-black text-slate-900 uppercase tracking-wide">{station}</span>
+                              <span className="text-[10px] bg-blue-50 text-[#005486] font-bold px-2 py-0.5 rounded-md">
+                                {reqs.length} Curso{reqs.length === 1 ? '' : 's'}
+                              </span>
+                            </div>
+
+                            {reqs.length > 0 ? (
+                              <div className="flex flex-wrap gap-1.5 my-2">
+                                {reqs.map(r => (
+                                  <span key={r} className="text-[10px] bg-slate-100 text-slate-700 font-semibold px-2.5 py-0.5 rounded-lg border border-slate-200">
+                                    {r}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="text-xs text-slate-400 italic py-2 flex items-center gap-1">
+                                <HelpCircle className="w-3.5 h-3.5" />
+                                <span>Sin entrenamientos configurados</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -633,7 +528,7 @@ export const CompetenciesView: React.FC = () => {
               <div className="space-y-4 font-sans">
                 <h3 className="text-xs font-black uppercase text-slate-900 tracking-wider">Cargar Entrenamientos</h3>
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  Carga el historial de capacitación y certificaciones de los operadores. Soporta tanto listas horizontales como matrices de entrenamientos.
+                  Carga el historial de capacitación y certificaciones de los operadores. El archivo cargado es la única fuente de información y sobrescribe configuraciones manuales.
                 </p>
 
                 {/* File Dropzone */}
@@ -651,20 +546,18 @@ export const CompetenciesView: React.FC = () => {
 
                 {/* Import Template Guidelines */}
                 <div className="bg-[#F8FAFC] border border-slate-200 rounded-xl p-3 text-[11px] text-slate-600 space-y-2">
-                  <span className="font-bold text-slate-800 block">Estructura matriz aceptada:</span>
+                  <span className="font-bold text-slate-800 block">Estructura matriz obligatoria:</span>
                   <div className="grid grid-cols-4 gap-1 font-mono font-bold bg-white p-1.5 border rounded border-slate-100 text-center text-[10px]">
                     <div className="bg-blue-50 text-[#005486] rounded p-0.5">#Empleado</div>
                     <div className="bg-slate-50 text-slate-700 rounded p-0.5">CursoA</div>
                     <div className="bg-slate-50 text-slate-700 rounded p-0.5">CursoB</div>
                     <div className="bg-slate-50 text-slate-700 rounded p-0.5">CursoC</div>
                   </div>
-                  <span className="font-bold text-slate-800 block">O estructura de lista simple:</span>
-                  <div className="grid grid-cols-4 gap-1 font-mono font-bold bg-white p-1.5 border rounded border-slate-100 text-center text-[10px]">
-                    <div className="bg-blue-50 text-[#005486] rounded p-0.5">Gafete</div>
-                    <div className="bg-slate-50 text-slate-700 rounded p-0.5">Nombre</div>
-                    <div className="bg-blue-50 text-[#005486] rounded p-0.5">Curso</div>
-                    <div className="bg-slate-50 text-slate-700 rounded p-0.5">Estado</div>
-                  </div>
+                  <ul className="list-disc pl-4 space-y-1 text-slate-500 text-[10px]">
+                    <li>Cabecera define cursos completados.</li>
+                    <li>Filas corresponden a número de operador.</li>
+                    <li>Marcar con <strong>X</strong> los completados.</li>
+                  </ul>
                 </div>
               </div>
 
@@ -913,138 +806,6 @@ export const CompetenciesView: React.FC = () => {
         )}
 
       </div>
-
-      {/* 3. MODALS */}
-      {/* Configure Matrix Modal */}
-      {isEditMatrixOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="w-full max-w-lg bg-white border border-[#DCE3EA] rounded-2xl shadow-2xl flex flex-col overflow-hidden max-h-[90vh]">
-            {/* Header */}
-            <div className="bg-[#005486] text-white p-4 flex justify-between items-center shrink-0">
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="w-5 h-5 text-emerald-300" />
-                <div>
-                  <h3 className="text-sm font-black uppercase tracking-wider">Requerimientos de Estación</h3>
-                  <span className="text-[10px] text-white/70 block mt-0.5">Configurar entrenamientos para la estación {editingStation}</span>
-                </div>
-              </div>
-              <button 
-                onClick={() => setIsEditMatrixOpen(false)}
-                className="p-1 rounded-lg bg-white/10 hover:bg-white/20 text-white/80 hover:text-white transition-all cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Content Body */}
-            <div className="p-5 flex-grow overflow-y-auto space-y-4">
-              {/* Training Checkbox Grid */}
-              <div className="space-y-2">
-                <label className="text-[10px] text-slate-500 font-black uppercase tracking-wider block">Cursos de Capacitación Disponibles</label>
-                
-                <div className="border border-[#DCE3EA] rounded-xl p-3 bg-[#F8FAFC] max-h-[220px] overflow-y-auto space-y-2">
-                  {availableTrainings.map(t => {
-                    const isChecked = selectedTrainings.includes(t);
-                    return (
-                      <label key={t} className="flex items-center gap-2.5 bg-white p-2 rounded-lg border border-[#DCE3EA] hover:border-slate-350 cursor-pointer select-none text-xs text-slate-800">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={() => handleToggleTrainingSelection(t)}
-                          className="w-4 h-4 text-[#005486] rounded border-[#DCE3EA] focus:ring-[#005486]"
-                        />
-                        <span className="font-bold">{t}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Add Custom Training Name Inline */}
-              <div className="space-y-1.5 pt-2 border-t border-slate-100">
-                <label className="text-[10px] text-slate-500 font-black uppercase tracking-wider block">Registrar Nuevo Curso a la Lista</label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="Ej. Certificación Rayos X..."
-                    value={newTrainingInput}
-                    onChange={(e) => setNewTrainingInput(e.target.value)}
-                    className="flex-1 bg-[#F5F7FA] border border-[#DCE3EA] rounded-xl px-3 py-2 text-xs text-slate-800 font-bold focus:outline-none focus:border-[#005486]"
-                  />
-                  <button
-                    onClick={handleAddTrainingToSelection}
-                    className="bg-[#059669] hover:bg-[#047857] text-white px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>Agregar</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Footer */}
-            <div className="p-4 bg-[#F5F7FA] border-t border-[#DCE3EA] flex justify-end gap-2 shrink-0">
-              <button
-                onClick={() => setIsEditMatrixOpen(false)}
-                className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-100 transition-all cursor-pointer"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleSaveMatrix}
-                className="px-5 py-2 bg-[#005486] hover:bg-[#003f66] text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
-              >
-                <CheckCircle2 className="w-4 h-4 text-emerald-300" />
-                <span>Guardar Cambios</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Add Custom Station Modal */}
-      {isAddStationOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="w-full max-w-sm bg-white border border-[#DCE3EA] rounded-2xl shadow-2xl overflow-hidden">
-            <div className="bg-[#005486] text-white p-4 flex justify-between items-center shrink-0">
-              <span className="text-xs font-black uppercase tracking-wider">Agregar Nueva Estación</span>
-              <button 
-                onClick={() => setIsAddStationOpen(false)}
-                className="p-1 rounded-lg bg-white/10 hover:bg-white/20 text-white/80 hover:text-white transition-all cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            
-            <div className="p-5 space-y-3">
-              <label className="text-[10px] text-slate-500 font-black uppercase tracking-wider block">Nombre de Estación</label>
-              <input
-                type="text"
-                placeholder="Ej. Rayos X, AOI, Test..."
-                value={customStationName}
-                onChange={(e) => setCustomStationName(e.target.value)}
-                className="w-full bg-[#F5F7FA] border border-[#DCE3EA] rounded-xl px-3 py-2 text-xs text-slate-800 font-bold focus:outline-none focus:border-[#005486]"
-                autoFocus
-              />
-            </div>
-
-            <div className="p-4 bg-[#F5F7FA] border-t border-[#DCE3EA] flex justify-end gap-2 shrink-0">
-              <button
-                onClick={() => setIsAddStationOpen(false)}
-                className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-100 transition-all cursor-pointer"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleAddCustomStation}
-                className="px-5 py-2 bg-[#005486] hover:bg-[#003f66] text-white rounded-xl text-xs font-bold transition-all cursor-pointer"
-              >
-                Siguiente
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
     </div>
   );

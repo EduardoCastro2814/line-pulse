@@ -351,7 +351,7 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
 
     // 3. Persist mapped record to Supabase
     try {
-      const { data: insertResult, error: insertError } = await supabase.from('escaneos').insert(mappedRecord).select().single();
+      const { error: insertError } = await supabase.from('escaneos').insert(mappedRecord).select().single();
 
       if (insertError) {
         console.error('[SUPABASE INSERT ERROR DETALLADO]:', insertError);
@@ -362,16 +362,37 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
       } else {
         console.log('[SUPABASE INSERT EXITOSO]: Escaneo registrado correctamente en base de datos');
         
-        const insertedRecord = insertResult;
-        if (insertedRecord?.warning_message) {
-          setScanFeedback({
-            status: 'warning',
-            message: `⚠️ Operador registrado sin entrenamiento requerido.\n${insertedRecord.warning_message.replace('Operador registrado sin entrenamiento requerido. ', '')}`
-          });
+        // Calculate certification compliance in real-time
+        const tempMetrics = calculateLineMetrics(lineId, posiciones, updatedScansList, coberturas, [line]);
+        const matchedPos = Object.values(tempMetrics.positionsDetails || {}).find((d: any) => d.employee?.badge_id === cleanNum);
+
+        if (eventType === 'TURN_START' || eventType === 'MEAL_COVERAGE') {
+          if (matchedPos) {
+            if (matchedPos.isCertified) {
+              setScanFeedback({
+                status: 'success',
+                message: `✅ Operador certificado para la estación.`
+              });
+            } else {
+              setScanFeedback({
+                status: 'warning',
+                message: `⚠ Operador sin entrenamiento requerido para esta estación.\nCursos faltantes: ${matchedPos.missingTrainings.join(', ')}`
+              });
+            }
+          } else {
+            setScanFeedback({
+              status: 'success',
+              message: `✅ Escaneo registrado: Empleado #${cleanNum}`
+            });
+          }
         } else {
+          let actionStr = 'INICIÓ TURNO';
+          if (eventType === 'lunch_start') actionStr = 'SALIDA A COMEDOR';
+          if (eventType === 'lunch_return') actionStr = 'REGRESO DE COMEDOR';
+          if (eventType === 'shift_end') actionStr = 'FINALIZÓ TURNO';
           setScanFeedback({
             status: 'success',
-            message: `✅ Escaneo registrado: Empleado #${cleanNum}`
+            message: `✅ Empleado #${cleanNum} - ${actionStr}`
           });
         }
 
