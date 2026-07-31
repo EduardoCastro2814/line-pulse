@@ -427,7 +427,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
       const payload = currentLinePositions.map(pos => ({
         line_id: selectedLineId,
         code: pos.code,
-        station_name: pos.code,
+        station_name: pos.station_name || pos.code,
         x_percent: pos.x_percent,
         y_percent: pos.y_percent
       }));

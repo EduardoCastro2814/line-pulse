@@ -18,6 +18,7 @@ export const ConfigurationModal: React.FC<ConfigurationModalProps> = ({ isOpen, 
   const [assignments, setAssignments] = useState<any[]>([]);
   const [coverages, setCoverages] = useState<any[]>([]);
   const [posiciones, setPosiciones] = useState<any[]>([]);
+  const [availableStations, setAvailableStations] = useState<string[]>([]);
 
   // Selected line
   const [selectedLineId, setSelectedLineId] = useState<string>('');
@@ -66,6 +67,7 @@ export const ConfigurationModal: React.FC<ConfigurationModalProps> = ({ isOpen, 
     const { data: assignData } = await supabase.from('empleados_linea').select('*, empleado:empleados(*)');
     const { data: covData } = await supabase.from('coberturas').select('*');
     const { data: posData } = await supabase.from('posiciones').select('*, empleado:empleados(*)');
+    const { data: reqData } = await supabase.from('station_requirements').select('station_name');
 
     if (linesData) {
       setLines(linesData);
@@ -78,6 +80,9 @@ export const ConfigurationModal: React.FC<ConfigurationModalProps> = ({ isOpen, 
     if (assignData) setAssignments(assignData);
     if (covData) setCoverages(covData);
     if (posData) setPosiciones(posData);
+
+    const distinctStations = Array.from(new Set(reqData ? reqData.map((r: any) => r.station_name as string) : [])) as string[];
+    setAvailableStations(distinctStations);
   };
 
   useEffect(() => {
@@ -232,7 +237,7 @@ export const ConfigurationModal: React.FC<ConfigurationModalProps> = ({ isOpen, 
       id: Math.random().toString(36).substring(2, 11),
       line_id: selectedLineId,
       code: `POS${nextNum < 10 ? '0' + nextNum : nextNum}`,
-      station_name: `Estación ${nextNum}`,
+      station_name: '',
       employee_id: null,
       x_percent: 50,
       y_percent: 50
@@ -244,6 +249,13 @@ export const ConfigurationModal: React.FC<ConfigurationModalProps> = ({ isOpen, 
   const handleSavePositions = async () => {
     const linePositions = posiciones.filter(p => p.line_id === selectedLineId);
     
+    // Validate that all positions have a station name assigned
+    const missingStation = linePositions.find(p => !p.station_name || !p.station_name.trim());
+    if (missingStation) {
+      showError(`La posición ${missingStation.code} debe tener una estación asociada.`);
+      return;
+    }
+
     await supabase.from('posiciones').delete().eq('line_id', selectedLineId);
     
     for (const pos of linePositions) {
@@ -775,29 +787,22 @@ export const ConfigurationModal: React.FC<ConfigurationModalProps> = ({ isOpen, 
                             />
                           </div>
 
-                          {/* Station Name */}
+                          {/* Station Name Select Dropdown */}
                           <div className="col-span-4">
-                            <input
-                              type="text"
-                              list={`station-names-${pos.id}`}
+                            <select
                               value={pos.station_name}
                               onChange={(e) => {
                                 const val = e.target.value;
                                 setPosiciones(prev => prev.map(p => p.id === pos.id ? { ...p, station_name: val } : p));
                               }}
-                              className="w-full bg-[#F5F7FA] border border-[#DCE3EA] rounded p-1.5 text-slate-800"
-                              placeholder="Nombre Estación"
-                            />
-                            <datalist id={`station-names-${pos.id}`}>
-                              <option value="Stencil" />
-                              <option value="SPI" />
-                              <option value="Siplace 01" />
-                              <option value="Siplace 02" />
-                              <option value="AOI" />
-                              <option value="Rayos X" />
-                              <option value="Empaque" />
-                              <option value="Test" />
-                            </datalist>
+                              className="w-full bg-[#F5F7FA] border border-[#DCE3EA] rounded p-1.5 text-slate-800 font-bold"
+                              required
+                            >
+                              <option value="">Seleccione Estación</option>
+                              {Array.from(new Set([...availableStations, pos.station_name].filter(Boolean))).map((st) => (
+                                <option key={st} value={st}>{st}</option>
+                              ))}
+                            </select>
                           </div>
 
                           {/* Employee Assignment */}
