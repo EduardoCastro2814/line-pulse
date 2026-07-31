@@ -202,6 +202,8 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
       const channel = supabase.channel(`line-detail-realtime-${lineId}`)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'escaneos' }, () => loadData())
         .on('postgres_changes', { event: '*', schema: 'public', table: 'lineas' }, () => loadData())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'posiciones' }, () => loadData())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'line_positions' }, () => loadData())
         .on('postgres_changes', { event: '*', schema: 'public', table: 'coberturas' }, () => loadData())
         .subscribe();
 
@@ -371,6 +373,50 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
             status: 'success',
             message: `✅ Escaneo registrado: Empleado #${cleanNum}`
           });
+        }
+
+        // --- POSITION ASSOCIATION LOGIC ---
+        try {
+          const { data: empRes } = await supabase.from('empleados').select('*').eq('badge_id', cleanNum);
+          const emp = empRes && empRes.length > 0 ? empRes[0] : null;
+          if (emp) {
+            const { data: posRes } = await supabase.from('posiciones').select('*').eq('line_id', lineId);
+            let usingTable = 'posiciones';
+            let linePos = posRes || [];
+            if (linePos.length === 0) {
+              const { data: lpRes } = await supabase.from('line_positions').select('*').eq('line_id', lineId);
+              linePos = lpRes || [];
+              usingTable = 'line_positions';
+            }
+
+            const alreadyAssigned = linePos.find((p: any) => p.employee_id === emp.id);
+            if (!alreadyAssigned) {
+              const sortedLinePos = [...linePos].sort((a: any, b: any) => {
+                const codeA = Number(a.code.replace('POS', '')) || 0;
+                const codeB = Number(b.code.replace('POS', '')) || 0;
+                return codeA - codeB;
+              });
+              const freePos = sortedLinePos.find((p: any) => !p.employee_id);
+              if (freePos) {
+                const oldState = freePos.employee_id;
+                await supabase.from(usingTable).update({ employee_id: emp.id }).eq('id', freePos.id);
+
+                console.log('Escaneo recibido:', cleanNum);
+                console.log('Posición asignada:', freePos.code);
+                console.log('ID Posición:', freePos.id);
+                console.log('Estado anterior:', oldState);
+                console.log('Estado nuevo:', emp.id);
+              }
+            } else {
+              console.log('Escaneo recibido:', cleanNum);
+              console.log('Posición asignada:', alreadyAssigned.code);
+              console.log('ID Posición:', alreadyAssigned.id);
+              console.log('Estado anterior:', alreadyAssigned.employee_id);
+              console.log('Estado nuevo:', alreadyAssigned.employee_id);
+            }
+          }
+        } catch (posErr) {
+          console.error('Error auto-assigning position in processDirectScan:', posErr);
         }
 
         // Calculate new status:

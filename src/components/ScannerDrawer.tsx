@@ -189,6 +189,67 @@ export const ScannerDrawer: React.FC<ScannerDrawerProps> = ({ isOpen, onClose })
         message: msg,
         employeeName: scanResult.employee_name
       });
+
+      // --- POSITION ASSOCIATION LOGIC ---
+      try {
+        const { data: empRes } = await supabase.from('empleados').select('*').eq('badge_id', badgeId.trim());
+        const emp = empRes && empRes.length > 0 ? empRes[0] : null;
+        if (emp) {
+          const { data: posRes } = await supabase.from('posiciones').select('*').eq('line_id', selectedLine);
+          let usingTable = 'posiciones';
+          let linePos = posRes || [];
+          if (linePos.length === 0) {
+            const { data: lpRes } = await supabase.from('line_positions').select('*').eq('line_id', selectedLine);
+            linePos = lpRes || [];
+            usingTable = 'line_positions';
+          }
+
+          if (eventType === 'lunch_start' || eventType === 'shift_end') {
+            // Free position
+            const occupied = linePos.find((p: any) => p.employee_id === emp.id);
+            if (occupied) {
+              const oldState = occupied.employee_id;
+              await supabase.from(usingTable).update({ employee_id: null }).eq('id', occupied.id);
+
+              console.log('Escaneo recibido:', badgeId.trim());
+              console.log('Posición asignada:', null);
+              console.log('ID Posición:', occupied.id);
+              console.log('Estado anterior:', oldState);
+              console.log('Estado nuevo:', null);
+            }
+          } else {
+            // Associate to position
+            const alreadyAssigned = linePos.find((p: any) => p.employee_id === emp.id);
+            if (!alreadyAssigned) {
+              const sortedLinePos = [...linePos].sort((a: any, b: any) => {
+                const codeA = Number(a.code.replace('POS', '')) || 0;
+                const codeB = Number(b.code.replace('POS', '')) || 0;
+                return codeA - codeB;
+              });
+              const freePos = sortedLinePos.find((p: any) => !p.employee_id);
+              if (freePos) {
+                const oldState = freePos.employee_id;
+                await supabase.from(usingTable).update({ employee_id: emp.id }).eq('id', freePos.id);
+
+                console.log('Escaneo recibido:', badgeId.trim());
+                console.log('Posición asignada:', freePos.code);
+                console.log('ID Posición:', freePos.id);
+                console.log('Estado anterior:', oldState);
+                console.log('Estado nuevo:', emp.id);
+              }
+            } else {
+              console.log('Escaneo recibido:', badgeId.trim());
+              console.log('Posición asignada:', alreadyAssigned.code);
+              console.log('ID Posición:', alreadyAssigned.id);
+              console.log('Estado anterior:', alreadyAssigned.employee_id);
+              console.log('Estado nuevo:', alreadyAssigned.employee_id);
+            }
+          }
+        }
+      } catch (posErr) {
+        console.error('Error updating position in ScannerDrawer:', posErr);
+      }
+
       loadData();
     }
 

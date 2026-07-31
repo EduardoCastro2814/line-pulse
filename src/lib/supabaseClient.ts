@@ -1392,9 +1392,10 @@ class MockSupabaseQuery {
           return { data: scanRecord, error: { message: 'Empleado no asignado a esta línea' } };
         } else {
           let actionStr = 'Ingresó a línea';
-          if (item.event_type === 'lunch_start') actionStr = 'Salida a comedor';
-          if (item.event_type === 'lunch_return') actionStr = 'Regreso de comedor';
-          if (item.event_type === 'shift_end') actionStr = 'Salida de turno';
+          const type = item.event_type || 'shift_start';
+          if (type === 'lunch_start') actionStr = 'Salida a comedor';
+          if (type === 'lunch_return') actionStr = 'Regreso de comedor';
+          if (type === 'shift_end') actionStr = 'Salida de turno';
 
           const successEvent = {
             id: Math.random().toString(36).substring(2, 11),
@@ -1406,6 +1407,96 @@ class MockSupabaseQuery {
           events.push(successEvent);
           saveTable('historial_eventos', events);
           dispatchDbChange('historial_eventos', 'INSERT', successEvent);
+
+          // --- POSITION ASSOCIATION LOGIC (MOCK DB) ---
+          try {
+            const posiciones = loadTable('posiciones');
+            let usingTable = 'posiciones';
+            let linePos = posiciones.filter((p: any) => p.line_id === lineId);
+            if (linePos.length === 0) {
+              const linePositions = loadTable('line_positions');
+              linePos = linePositions.filter((p: any) => p.line_id === lineId);
+              usingTable = 'line_positions';
+            }
+
+            if (type === 'lunch_start' || type === 'shift_end') {
+              // Free position
+              const occupied = linePos.find((p: any) => p.employee_id === emp.id);
+              if (occupied) {
+                const oldState = occupied.employee_id;
+                
+                // Save updated table
+                if (usingTable === 'posiciones') {
+                  const pIdx = posiciones.findIndex((p: any) => p.id === occupied.id);
+                  if (pIdx !== -1) {
+                    posiciones[pIdx].employee_id = null;
+                    saveTable('posiciones', posiciones);
+                  }
+                } else {
+                  const linePositions = loadTable('line_positions');
+                  const lpIdx = linePositions.findIndex((p: any) => p.id === occupied.id);
+                  if (lpIdx !== -1) {
+                    linePositions[lpIdx].employee_id = null;
+                    saveTable('line_positions', linePositions);
+                  }
+                }
+
+                console.log('Escaneo recibido:', badgeId);
+                console.log('Posición asignada:', null);
+                console.log('ID Posición:', occupied.id);
+                console.log('Estado anterior:', oldState);
+                console.log('Estado nuevo:', null);
+
+                dispatchDbChange(usingTable, 'UPDATE', { ...occupied, employee_id: null });
+              }
+            } else {
+              // Check-in: Associate employee to next free position
+              const alreadyAssigned = linePos.find((p: any) => p.employee_id === emp.id);
+              if (!alreadyAssigned) {
+                const sortedLinePos = [...linePos].sort((a: any, b: any) => {
+                  const codeA = Number(a.code.replace('POS', '')) || 0;
+                  const codeB = Number(b.code.replace('POS', '')) || 0;
+                  return codeA - codeB;
+                });
+                const freePos = sortedLinePos.find((p: any) => !p.employee_id);
+                if (freePos) {
+                  const oldState = freePos.employee_id;
+                  
+                  // Update table in local storage
+                  if (usingTable === 'posiciones') {
+                    const posToUpdate = posiciones.find((p: any) => p.id === freePos.id);
+                    if (posToUpdate) {
+                      posToUpdate.employee_id = emp.id;
+                      saveTable('posiciones', posiciones);
+                      dispatchDbChange('posiciones', 'UPDATE', posToUpdate);
+                    }
+                  } else {
+                    const linePositions = loadTable('line_positions');
+                    const posToUpdate = linePositions.find((p: any) => p.id === freePos.id);
+                    if (posToUpdate) {
+                      posToUpdate.employee_id = emp.id;
+                      saveTable('line_positions', linePositions);
+                      dispatchDbChange('line_positions', 'UPDATE', posToUpdate);
+                    }
+                  }
+
+                  console.log('Escaneo recibido:', badgeId);
+                  console.log('Posición asignada:', freePos.code);
+                  console.log('ID Posición:', freePos.id);
+                  console.log('Estado anterior:', oldState);
+                  console.log('Estado nuevo:', emp.id);
+                }
+              } else {
+                console.log('Escaneo recibido:', badgeId);
+                console.log('Posición asignada:', alreadyAssigned.code);
+                console.log('ID Posición:', alreadyAssigned.id);
+                console.log('Estado anterior:', alreadyAssigned.employee_id);
+                console.log('Estado nuevo:', alreadyAssigned.employee_id);
+              }
+            }
+          } catch (posErr) {
+            console.error('Error auto-assigning position in mock insert:', posErr);
+          }
 
           // Recalculate Andon values
           recalculateLineState(lineId);
