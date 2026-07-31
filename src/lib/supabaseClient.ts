@@ -891,11 +891,23 @@ export const calculateLineMetrics = (
     return scanMin >= validScanStartMin && scanMin < validScanEndMin;
   });
 
-  const distinctScannedBadges = Array.from(new Set(
-    lineScans
-      .map((s: any) => (s.employee_number || s.badge_id || '').trim())
-      .filter(Boolean)
-  ));
+  // Group by badge_id to find most recent state
+  const badgeLastEventMap: Record<string, any> = {};
+  lineScans
+    .sort((a: any, b: any) => new Date(a.event_time || a.scan_time || a.created_at || Date.now()).getTime() - new Date(b.event_time || b.scan_time || b.created_at || Date.now()).getTime())
+    .forEach((scan: any) => {
+      const badgeId = (scan.employee_number || scan.badge_id || '').trim();
+      if (badgeId) {
+        badgeLastEventMap[badgeId] = scan;
+      }
+    });
+
+  // Filter only those whose most recent event is a check-in
+  const distinctScannedBadges = Object.keys(badgeLastEventMap).filter(badgeId => {
+    const lastScan = badgeLastEventMap[badgeId];
+    const type = lastScan.event_type;
+    return type === 'shift_start' || type === 'lunch_return' || type === 'TURN_START' || type === 'MEAL_COVERAGE';
+  });
 
   const distinctScanned = distinctScannedBadges.length;
   const cappedScanned = Math.min(distinctScanned, target);
@@ -916,10 +928,16 @@ export const calculateLineMetrics = (
     });
 
   const activePositions = linePositions.slice(0, target);
-  const empleados = loadTable('empleados');
+  
+  // Construct presentEmployees directly from lineScans/badgeLastEventMap to ensure 1:1 sync with the KPI
   const presentEmployees = distinctScannedBadges.map(badgeId => {
-    return empleados.find((e: any) => e.badge_id === badgeId);
-  }).filter(Boolean);
+    const lastScan = badgeLastEventMap[badgeId];
+    return {
+      id: badgeId, // Keep id as badgeId to avoid dataset/query mismatch
+      badge_id: badgeId,
+      name: lastScan?.employee_name || `Empleado #${badgeId}`
+    };
+  });
 
   const positionOccupancy: Record<string, any> = {};
   const placedEmployeeIds = new Set<string>();
@@ -927,7 +945,11 @@ export const calculateLineMetrics = (
   // A. First pass: Pre-assigned operators who are present
   activePositions.forEach(pos => {
     if (pos.employee_id) {
-      const isPresent = presentEmployees.find((e: any) => e.id === pos.employee_id);
+      // Find present employee matching pre-assigned badge ID or ID
+      const preassignedBadgeId = pos.empleado?.badge_id || pos.employee_id;
+      const isPresent = presentEmployees.find((e: any) => 
+        e.badge_id === preassignedBadgeId || e.id === pos.employee_id
+      );
       if (isPresent) {
         positionOccupancy[pos.id] = { employee: isPresent, isPreassigned: true };
         placedEmployeeIds.add(isPresent.id);
@@ -1038,6 +1060,11 @@ export const calculateLineMetrics = (
     statusBadgeText = 'INTEGRANDO PERSONAL';
     statusEmoji = '🟡';
   }
+
+  // Temporary debug logs
+  console.log('Posiciones encontradas:', activePositions.map((p: any) => p.code));
+  console.log('Escaneos válidos:', distinctScannedBadges);
+  console.log('Posiciones pintadas en verde:', Object.values(positionsDetails).filter((d: any) => d.statusColor === '#22C55E').map((d: any) => d.code));
 
   return {
     lineId,
