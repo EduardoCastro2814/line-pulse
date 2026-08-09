@@ -385,7 +385,7 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
             } else {
               setScanFeedback({
                 status: 'warning',
-                message: `⚠ Operador sin entrenamiento requerido para esta estación.\nCursos faltantes: ${matchedPos.missingTrainings.join(', ')}`
+                message: `⚠ Operador sin entrenamientos requeridos`
               });
             }
           } else {
