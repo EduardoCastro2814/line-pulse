@@ -1029,15 +1029,15 @@ export const calculateLineMetrics = (
     let statusLabel = 'Vacante';
 
     if (isOccupied) {
-      if (isCoverageActive) {
+      if (!isCertified) {
+        markerColor = '#EAB308'; // YELLOW
+        statusLabel = `Operador no certificado para la estación asignada. Faltante: ${missingTrainings.join(', ')}`;
+      } else if (isCoverageActive) {
         markerColor = '#3B82F6'; // BLUE
         statusLabel = 'Cobertura Activa';
-      } else if (isCertified) {
+      } else {
         markerColor = '#22C55E'; // GREEN
         statusLabel = 'Cubierta';
-      } else {
-        markerColor = '#EAB308'; // YELLOW
-        statusLabel = `Operador presente sin entrenamiento completo. Faltante: ${missingTrainings.join(', ')}`;
       }
     } else {
       markerColor = '#EF4444'; // RED
@@ -1063,24 +1063,24 @@ export const calculateLineMetrics = (
   let statusBadgeText = 'FALTA PERSONAL';
   let statusEmoji = '🔴';
 
-  if (isCoverageActive) {
-    if (coveragePct >= 100) {
-      statusColor = '#3B82F6'; // Blue
-      statusBadgeText = 'COBERTURA COMEDOR';
-      statusEmoji = '🔵';
-    } else {
-      statusColor = '#EF4444'; // Red
-      statusBadgeText = 'FALTA PERSONAL';
-      statusEmoji = '🔴';
-    }
-  } else if (coveragePct >= 100) {
-    statusColor = '#22C55E'; // Green
-    statusBadgeText = 'PLANTILLA COMPLETA';
-    statusEmoji = '🟢';
-  } else if (coveragePct > 0) {
+  const isTemplateComplete = cappedScanned >= target;
+
+  if (!isTemplateComplete) {
+    statusColor = '#EF4444'; // Red
+    statusBadgeText = 'FALTA PERSONAL';
+    statusEmoji = '🔴';
+  } else if (uncertifiedCount > 0) {
     statusColor = '#EAB308'; // Yellow
-    statusBadgeText = 'INTEGRANDO PERSONAL';
+    statusBadgeText = `COBERTURA NO CALIFICADA ⚠ ${uncertifiedCount} operadores sin certificación`;
     statusEmoji = '🟡';
+  } else if (isCoverageActive) {
+    statusColor = '#3B82F6'; // Blue
+    statusBadgeText = 'COBERTURA COMEDOR';
+    statusEmoji = '🔵';
+  } else {
+    statusColor = '#22C55E'; // Green
+    statusBadgeText = 'OPERACIÓN COMPLETA';
+    statusEmoji = '🟢';
   }
 
   return {

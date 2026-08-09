@@ -529,7 +529,9 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
     statusColor, 
     statusBadgeText, 
     activeShiftName,
-    isCoverageActive
+    isCoverageActive,
+    qualifiedCoveragePct,
+    certifiedCount
   } = metrics;
 
   const distinctScannedEmployees = Array.from(
@@ -753,7 +755,16 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
         
         {/* Left: Large Circular Gauge & Coverage KPI */}
         <div className="flex items-center space-x-6">
-          <LargeCircularGauge percentage={coveragePct} color={statusColor} present={scannedCount} target={target} />
+          <div className="flex items-center gap-6">
+            <div className="flex flex-col items-center">
+              <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1 font-mono">Cobert. Global</span>
+              <LargeCircularGauge percentage={coveragePct} color={statusColor} present={scannedCount} target={target} />
+            </div>
+            <div className="flex flex-col items-center">
+              <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1 font-mono">Cobert. Calificada</span>
+              <LargeCircularGauge percentage={qualifiedCoveragePct} color={qualifiedCoveragePct === 100 ? '#22C55E' : '#EAB308'} present={certifiedCount} target={target} />
+            </div>
+          </div>
 
           <div className="flex flex-col justify-center">
             <span className="text-2xl font-black uppercase text-slate-900 font-mono tracking-wider">
