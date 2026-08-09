@@ -1083,11 +1083,6 @@ export const calculateLineMetrics = (
     statusEmoji = '🟡';
   }
 
-  // Temporary debug logs
-  console.log('Posiciones encontradas:', activePositions.map((p: any) => p.code));
-  console.log('Escaneos válidos:', distinctScannedBadges);
-  console.log('Posiciones pintadas en verde:', Object.values(positionsDetails).filter((d: any) => d.statusColor === '#22C55E').map((d: any) => d.code));
-
   return {
     lineId,
     target,

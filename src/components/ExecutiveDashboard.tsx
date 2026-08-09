@@ -63,6 +63,18 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
   const [activeDraggingPosId, setActiveDraggingPosId] = useState<string | null>(null);
   const layoutRef = React.useRef<HTMLDivElement>(null);
 
+  // Dynamic stations from competencies matrix catalog
+  const [stations, setStations] = useState<string[]>([]);
+  const [selectedPendingCode, setSelectedPendingCode] = useState<string | null>(null);
+
+  // Position configuration modal state
+  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+  const [configPosCode, setConfigPosCode] = useState('');
+  const [configPosX, setConfigPosX] = useState(50);
+  const [configPosY, setConfigPosY] = useState(50);
+  const [configPosId, setConfigPosId] = useState<string | null>(null); // null if new, otherwise existing position id
+  const [configStationName, setConfigStationName] = useState('');
+
   const [feedbackMsg, setFeedbackMsg] = useState<{ type: 'success' | 'error' | null; text: string }>({ type: null, text: '' });
   const [areaLoadError, setAreaLoadError] = useState(false);
   const [formErrors, setFormErrors] = useState<{ name?: string; area_id?: string }>({});
@@ -132,6 +144,13 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
       const { data: trData } = await supabase.from('training_records').select('*');
       setStationRequirements(srData || []);
       setTrainingRecords(trData || []);
+
+      try {
+        const { data: stationsData } = await supabase.from('stations').select('*').order('name', { ascending: true });
+        setStations(stationsData ? stationsData.map((s: any) => s.name) : []);
+      } catch (stErr) {
+        console.warn('Error loading stations catalog:', stErr);
+      }
 
       setLines(linesData || []);
       setScans((scansData || []).map(mapScanFromSupabase));
@@ -385,27 +404,57 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
     );
   };
 
-  const handlePlacePositionAtDefault = (code: string) => {
+  const handleOpenConfigModal = (code: string, x: number, y: number, id: string | null) => {
+    setConfigPosCode(code);
+    setConfigPosX(x);
+    setConfigPosY(y);
+    setConfigPosId(id);
+    
+    if (id) {
+      const existing = posiciones.find(p => p.id === id);
+      setConfigStationName(existing?.station_name || '');
+    } else {
+      setConfigStationName('');
+    }
+    
+    setIsConfigModalOpen(true);
+  };
+
+  const handleSavePositionConfig = () => {
     if (!selectedLineId) return;
-    setPosiciones(prev => {
-      const existing = prev.find(p => p.line_id === selectedLineId && p.code === code);
-      if (existing) {
-        return prev.map(p => (p.line_id === selectedLineId && p.code === code) ? { ...p, placed: true } : p);
-      } else {
+    
+    const finalStationName = configStationName.trim() || configPosCode;
+
+    if (configPosId) {
+      // Editing existing position's station
+      setPosiciones(prev =>
+        prev.map(pos =>
+          pos.id === configPosId
+            ? { ...pos, station_name: finalStationName }
+            : pos
+        )
+      );
+    } else {
+      // Placing new position
+      setPosiciones(prev => {
+        const filtered = prev.filter(p => !(p.line_id === selectedLineId && p.code === configPosCode));
         return [
-          ...prev,
+          ...filtered,
           {
-            id: `temp-${code}`,
+            id: `temp-${configPosCode}-${Date.now()}`,
             line_id: selectedLineId,
-            code,
-            station_name: code,
-            x_percent: 50,
-            y_percent: 50,
+            code: configPosCode,
+            station_name: finalStationName,
+            x_percent: configPosX,
+            y_percent: configPosY,
             placed: true
           }
         ];
-      }
-    });
+      });
+      setSelectedPendingCode(null);
+    }
+    
+    setIsConfigModalOpen(false);
   };
 
   const handleSavePositions = async () => {
@@ -1208,20 +1257,27 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                               <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
                               Posiciones Pendientes por Ubicar ({unplacedCodes.length}):
                             </span>
-                            <span className="text-[10px] text-amber-700">Haga clic en la posición para colocarla sobre el plano</span>
+                            <span className="text-[10px] text-amber-700">Haga clic en una posición de abajo y luego en el plano para ubicarla</span>
                           </div>
                           <div className="flex flex-wrap gap-2">
-                            {unplacedCodes.map(code => (
-                              <button
-                                key={code}
-                                onClick={() => handlePlacePositionAtDefault(code)}
-                                className="bg-white hover:bg-amber-100 border-2 border-amber-500 text-amber-900 font-black font-mono text-xs px-2.5 py-1 rounded-lg shadow-sm flex items-center gap-1.5 cursor-pointer transition-all active:scale-95"
-                                title="Haga clic para colocar en el plano"
-                              >
-                                <span>●</span>
-                                <span>{code}</span>
-                              </button>
-                            ))}
+                            {unplacedCodes.map(code => {
+                              const isSelected = selectedPendingCode === code;
+                              return (
+                                <button
+                                  key={code}
+                                  onClick={() => setSelectedPendingCode(isSelected ? null : code)}
+                                  className={`border-2 font-black font-mono text-xs px-2.5 py-1 rounded-lg shadow-sm flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 ${
+                                    isSelected 
+                                      ? 'bg-amber-500 hover:bg-amber-600 border-amber-600 text-white animate-pulse'
+                                      : 'bg-white hover:bg-amber-100 border-amber-500 text-amber-900'
+                                  }`}
+                                  title="Haga clic para seleccionar y luego haga clic en el plano para ubicarla"
+                                >
+                                  <span>●</span>
+                                  <span>{code}</span>
+                                </button>
+                              );
+                            })}
                           </div>
                         </div>
                       )}
@@ -1229,8 +1285,25 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                       <div 
                         ref={layoutRef}
                         onMouseMove={handleCanvasMouseMove}
-                        onMouseUp={() => setActiveDraggingPosId(null)}
-                        className="relative w-full h-[300px] bg-slate-900 border-2 border-[#DCE3EA] rounded-xl overflow-hidden select-none shadow-inner"
+                        onMouseUp={() => {
+                          setActiveDraggingPosId(null);
+                          (window as any)._dragStart = null;
+                        }}
+                        onClick={(e) => {
+                          if (!selectedPendingCode) return;
+                          
+                          const rect = layoutRef.current?.getBoundingClientRect();
+                          if (!rect) return;
+                          
+                          const xPercent = Math.max(3, Math.min(97, Math.round(((e.clientX - rect.left) / rect.width) * 100)));
+                          const yPercent = Math.max(3, Math.min(97, Math.round(((e.clientY - rect.top) / rect.height) * 100)));
+                          
+                          // Open modal to configure station for this position
+                          handleOpenConfigModal(selectedPendingCode, xPercent, yPercent, null);
+                        }}
+                        className={`relative w-full h-[300px] bg-slate-900 border-2 rounded-xl overflow-hidden select-none shadow-inner transition-colors ${
+                          selectedPendingCode ? 'border-amber-500 ring-2 ring-amber-200 cursor-crosshair' : 'border-[#DCE3EA]'
+                        }`}
                       >
                         <img 
                           src={lineForm.layout_url || DEFAULT_SMT_LAYOUT} 
@@ -1243,19 +1316,35 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                             onMouseDown={(e) => {
                               e.stopPropagation();
                               setActiveDraggingPosId(pos.id);
+                              (window as any)._dragStart = { x: e.clientX, y: e.clientY };
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              
+                              const dragStart = (window as any)._dragStart;
+                              if (dragStart) {
+                                const dist = Math.hypot(e.clientX - dragStart.x, e.clientY - dragStart.y);
+                                if (dist > 5) {
+                                  // Dragged, ignore click
+                                  return;
+                                }
+                              }
+                              
+                              handleOpenConfigModal(pos.code, pos.x_percent, pos.y_percent, pos.id);
                             }}
                             style={{
                               left: `${pos.x_percent}%`,
                               top: `${pos.y_percent}%`,
                               transform: 'translate(-50%, -50%)'
                             }}
-                            className="absolute cursor-move z-20 transition-transform hover:scale-125 group"
+                            className="absolute cursor-move z-20 transition-transform hover:scale-110 group"
                           >
                             <div className="w-7 h-7 rounded-full bg-[#EF4444] border-2 border-white shadow-lg flex items-center justify-center text-white font-mono font-black text-[10px]">
                               {pos.code.replace('POS', '')}
                             </div>
-                            <span className="absolute -bottom-4 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[8px] font-mono px-1 rounded opacity-0 group-hover:opacity-100 transition-opacity">
-                              {pos.code}
+                            <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[9px] font-mono p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity z-30 whitespace-nowrap shadow-md flex flex-col items-center pointer-events-none">
+                              <span className="font-bold">{pos.code}</span>
+                              {pos.station_name && <span className="text-[8px] text-slate-300 border-t border-slate-700 w-full text-center mt-0.5 pt-0.5">{pos.station_name}</span>}
                             </span>
                           </div>
                         ))}
@@ -1919,6 +2008,81 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
           <span>👥 <strong>Normal / Cobertura / KPI:</strong> <span className="text-amber-400">{sampleMetrics?.normalTarget ?? 6} / {sampleMetrics?.coverageTarget ?? 0} / <strong className="text-emerald-400">{sampleMetrics?.target ?? 6}</strong></span></span>
         </div>
       </div>
+
+      {/* POSITION CONFIGURATION MODAL */}
+      {isConfigModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white border border-[#DCE3EA] rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in duration-200">
+            {/* Modal Header */}
+            <div className="bg-[#005486] px-5 py-4 flex items-center justify-between text-white">
+              <div className="flex items-center gap-2">
+                <Settings className="w-5 h-5" />
+                <h3 className="text-sm font-black tracking-wide uppercase font-mono">
+                  Configurar Posición
+                </h3>
+              </div>
+              <button
+                onClick={() => setIsConfigModalOpen(false)}
+                className="text-white/80 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-all cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 font-mono">
+                  Posición:
+                </label>
+                <div className="w-full bg-slate-100 border border-[#DCE3EA] rounded-xl px-3.5 py-2 text-xs font-black font-mono text-slate-800">
+                  {configPosCode}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 font-mono">
+                  Estación Asignada:
+                </label>
+                <select
+                  value={configStationName}
+                  onChange={(e) => setConfigStationName(e.target.value)}
+                  className="w-full bg-white border border-[#DCE3EA] rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:outline-none focus:border-[#005486] font-bold shadow-sm transition-all cursor-pointer"
+                >
+                  <option value="" disabled>Seleccionar estación ▼</option>
+                  {stations.length === 0 ? (
+                    <option value="" disabled>&times; Sin estaciones disponibles. Cargue una matriz de competencias &times;</option>
+                  ) : (
+                    stations.map((st) => (
+                      <option key={st} value={st}>
+                        {st}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="bg-[#F5F7FA] px-5 py-3 border-t border-[#DCE3EA] flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIsConfigModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-200 transition-all cursor-pointer font-sans"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSavePositionConfig}
+                className="bg-[#005486] hover:bg-[#003f66] text-white px-5 py-2 rounded-xl text-xs font-extrabold shadow-sm transition-all cursor-pointer font-sans"
+              >
+                Guardar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
