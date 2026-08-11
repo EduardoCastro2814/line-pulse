@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  FileText, Download, Calendar, Filter, Printer, Table, Trash2, RefreshCw, Clock, Award
+  FileText, Download, Calendar, Filter, Printer, Table, Trash2, RefreshCw, Clock, Award, Power
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { supabase, getLineIntegrationTimeMinutes, calculateLineMetrics, getLocalDateString, getCurrentShift, mapScanFromSupabase, getLineDowntimeMinutes } from '../lib/supabaseClient';
 
 export const ReportsView: React.FC = () => {
-  const [selectedReportType, setSelectedReportType] = useState<'scans' | 'downtime' | 'competencies'>('scans');
+  const [selectedReportType, setSelectedReportType] = useState<'scans' | 'downtime' | 'competencies' | 'operating_status'>('scans');
   
   // Filters state with strict local date (YYYY-MM-DD)
   const [dateRange, setDateRange] = useState({
@@ -26,6 +26,7 @@ export const ReportsView: React.FC = () => {
   const [coverages, setCoverages] = useState<any[]>([]);
   const [trainingRecords, setTrainingRecords] = useState<any[]>([]);
   const [stationRequirements, setStationRequirements] = useState<any[]>([]);
+  const [historyRecords, setHistoryRecords] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
 
@@ -33,7 +34,7 @@ export const ReportsView: React.FC = () => {
   const loadReportData = async () => {
     setLoading(true);
     try {
-      const [resLines, resAreas, resScans, resDowntimes, resPos, resCov, resTrainRecords, resStationReqs] = await Promise.all([
+      const [resLines, resAreas, resScans, resDowntimes, resPos, resCov, resTrainRecords, resStationReqs, resHistory] = await Promise.all([
         supabase.from('lineas').select('*').order('name'),
         supabase.from('areas').select('*').order('name'),
         supabase.from('escaneos').select('*'),
@@ -41,7 +42,8 @@ export const ReportsView: React.FC = () => {
         supabase.from('posiciones').select('*'),
         supabase.from('coberturas').select('*'),
         supabase.from('training_records').select('*'),
-        supabase.from('station_requirements').select('*')
+        supabase.from('station_requirements').select('*'),
+        supabase.from('historial_estados_linea').select('*').order('created_at', { ascending: false })
       ]);
 
       if (resLines.data) setLines(resLines.data);
@@ -55,6 +57,7 @@ export const ReportsView: React.FC = () => {
       if (resCov.data) setCoverages(resCov.data);
       if (resTrainRecords.data) setTrainingRecords(resTrainRecords.data);
       if (resStationReqs.data) setStationRequirements(resStationReqs.data);
+      if (resHistory.data) setHistoryRecords(resHistory.data);
     } catch (err) {
       console.error('Error al cargar datos de reportes:', err);
     } finally {
@@ -84,6 +87,12 @@ export const ReportsView: React.FC = () => {
       title: 'Cumplimiento de Competencias',
       desc: 'Mostrar cumplimiento de entrenamientos requeridos por estación para el personal presente en cada línea.',
       icon: Award
+    },
+    {
+      id: 'operating_status' as const,
+      title: 'Historial de Operación',
+      desc: 'Historial de cambios de estado operativo (encendido/apagado) con motivo, empleado autorizante y fecha.',
+      icon: Power
     }
   ];
 
@@ -478,6 +487,99 @@ export const ReportsView: React.FC = () => {
     window.URL.revokeObjectURL(url);
   };
 
+  const getFilteredHistoryRows = () => {
+    return historyRecords.filter(r => {
+      // Date filter (Local Date YYYY-MM-DD)
+      const rDate = r.fecha; // Already YYYY-MM-DD in DB
+      if (rDate < dateRange.start || rDate > dateRange.end) return false;
+
+      // Line filter
+      if (selectedLine !== 'ALL' && r.line_id !== selectedLine) return false;
+
+      // Area filter
+      if (selectedArea !== 'ALL') {
+        const lineObj = lines.find(l => l.id === r.line_id);
+        if (!lineObj || lineObj.area_id !== selectedArea) return false;
+      }
+
+      return true;
+    }).map(r => {
+      const lineObj = lines.find(l => l.id === r.line_id);
+      return {
+        id: r.id,
+        date: r.fecha,
+        time: r.hora,
+        lineName: lineObj ? lineObj.name : 'N/A',
+        employeeBadge: r.numero_empleado,
+        oldStatus: r.estado_anterior,
+        newStatus: r.estado_nuevo,
+        reason: r.motivo
+      };
+    });
+  };
+
+  const exportHistoryCSV = () => {
+    const rowsData = getFilteredHistoryRows();
+    if (rowsData.length === 0) {
+      alert('No hay datos para exportar.');
+      return;
+    }
+
+    const headers = ['Fecha', 'Hora', 'Línea', 'Número de Empleado', 'Estado Anterior', 'Estado Nuevo', 'Motivo'];
+    const rows = rowsData.map(r => [
+      `"${r.date}"`,
+      `"${r.time}"`,
+      `"${r.lineName}"`,
+      `"${r.employeeBadge}"`,
+      `"${r.oldStatus}"`,
+      `"${r.newStatus}"`,
+      `"${r.reason}"`
+    ]);
+
+    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `historial_operativo_${dateRange.start}_a_${dateRange.end}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const exportHistoryExcel = () => {
+    const rowsData = getFilteredHistoryRows();
+    if (rowsData.length === 0) {
+      alert('No hay datos para exportar.');
+      return;
+    }
+
+    const formatData = rowsData.map(r => ({
+      'Fecha': r.date,
+      'Hora': r.time,
+      'Línea': r.lineName,
+      'Empleado Autoriza': r.employeeBadge,
+      'Estado Anterior': r.oldStatus,
+      'Estado Nuevo': r.newStatus,
+      'Motivo': r.reason
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(formatData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Historial de Operación');
+    
+    const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+    const dataBlob = new Blob([excelBuffer], { type: 'application/octet-stream' });
+    
+    const url = window.URL.createObjectURL(dataBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `historial_operativo_${dateRange.start}_a_${dateRange.end}.xlsx`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  };
+
   const filteredScansList = getFilteredScans();
   const filteredDowntimeList = getFilteredDowntimeRows();
 
@@ -639,7 +741,9 @@ export const ReportsView: React.FC = () => {
                 ? 'Escaneos y Asistencia' 
                 : selectedReportType === 'downtime' 
                 ? 'Reporte de Downtime' 
-                : 'Cumplimiento de Competencias'}
+                : selectedReportType === 'competencies'
+                ? 'Cumplimiento de Competencias'
+                : 'Historial de Operación'}
             </h3>
           </div>
 
@@ -656,6 +760,23 @@ export const ReportsView: React.FC = () => {
                 </button>
                 <button
                   onClick={exportCompetenciesExcel}
+                  className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold px-3 py-2 rounded-xl text-xs transition-all shadow-sm cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Exportar Excel</span>
+                </button>
+              </div>
+            ) : selectedReportType === 'operating_status' ? (
+              <div className="flex gap-2">
+                <button
+                  onClick={exportHistoryCSV}
+                  className="flex items-center gap-1.5 bg-[#005486] hover:bg-[#003f66] text-white font-extrabold px-3 py-2 rounded-xl text-xs transition-all shadow-sm cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Exportar CSV</span>
+                </button>
+                <button
+                  onClick={exportHistoryExcel}
                   className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold px-3 py-2 rounded-xl text-xs transition-all shadow-sm cursor-pointer"
                 >
                   <Download className="w-4 h-4" />
@@ -806,7 +927,7 @@ export const ReportsView: React.FC = () => {
               </tbody>
             </table>
 
-          ) : (
+          ) : selectedReportType === 'competencies' ? (
 
             /* TABLA 3: CUMPLIMIENTO DE COMPETENCIAS OPERATIVAS */
             <table className="w-full text-left border-collapse text-xs">
@@ -854,6 +975,52 @@ export const ReportsView: React.FC = () => {
                       <td className="py-2.5 px-4 font-sans text-slate-500 font-semibold">
                         {row.missingTrainings.length > 0 ? row.missingTrainings.join(', ') : 'Ninguno'}
                       </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+
+          ) : (
+
+            /* TABLA 4: HISTORIAL DE CAMBIOS DE ESTADO OPERATIVO */
+            <table className="w-full text-left border-collapse text-xs">
+              <thead className="bg-[#F5F7FA] border-b border-[#DCE3EA] sticky top-0 z-10 text-[10px] font-black uppercase text-slate-600 tracking-wider">
+                <tr>
+                  <th className="py-2.5 px-4">Fecha</th>
+                  <th className="py-2.5 px-4">Hora</th>
+                  <th className="py-2.5 px-4">Línea</th>
+                  <th className="py-2.5 px-4">Empleado Autoriza</th>
+                  <th className="py-2.5 px-4">Estado Anterior</th>
+                  <th className="py-2.5 px-4">Estado Nuevo</th>
+                  <th className="py-2.5 px-4">Motivo</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#DCE3EA] font-mono">
+                {getFilteredHistoryRows().length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-12 text-center text-slate-400 font-sans font-semibold">
+                      No hay registros de historial de operación para los filtros seleccionados.
+                    </td>
+                  </tr>
+                ) : (
+                  getFilteredHistoryRows().map((row) => (
+                    <tr key={row.id} className="hover:bg-[#F5F7FA] transition-colors">
+                      <td className="py-3 px-4 text-slate-700">{row.date}</td>
+                      <td className="py-3 px-4 text-slate-700">{row.time}</td>
+                      <td className="py-3 px-4 font-sans font-black text-slate-900">{row.lineName}</td>
+                      <td className="py-3 px-4 text-[#005486] font-bold">{row.employeeBadge}</td>
+                      <td className="py-3 px-4">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600">
+                          {row.oldStatus === 'Apagada' ? '⚫ APAGADA' : '🟢 ENCENDIDA'}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${row.newStatus === 'Apagada' ? 'bg-slate-200 text-slate-700' : 'bg-emerald-100 text-emerald-800'}`}>
+                          {row.newStatus === 'Apagada' ? '⚫ APAGADA' : '🟢 ENCENDIDA'}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 font-sans font-bold text-slate-700">{row.reason}</td>
                     </tr>
                   ))
                 )}

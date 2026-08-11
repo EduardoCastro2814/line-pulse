@@ -32,6 +32,7 @@ export const loadTable = (tableName: string): any[] => {
       localStorage.removeItem(getStorageKey('station_requirements'));
       localStorage.removeItem(getStorageKey('stations'));
       localStorage.removeItem(getStorageKey('employee_competencies'));
+      localStorage.removeItem(getStorageKey('historial_estados_linea'));
       // Fall through to seed
     } else {
       return parsed;
@@ -66,26 +67,26 @@ function getSeedData(): Record<string, any[]> {
 
   const lineas = [
     // SMT Area (6 lines)
-    { id: 'line-11', area_id: 'area-smt', name: 'Línea 11', process: 'Solder Paste Printing', shift1_start: '06:00:00', shift1_target: 4, shift2_start: '14:00:00', shift2_target: 4, shift3_start: '22:00:00', shift3_target: 3, status: 'FALTA PERSONAL' },
-    { id: 'line-12', area_id: 'area-smt', name: 'Línea 12', process: 'Chip Shooting SMT', shift1_start: '06:00:00', shift1_target: 4, shift2_start: '14:00:00', shift2_target: 4, shift3_start: '22:00:00', shift3_target: 3, status: 'PLANTILLA COMPLETA' },
-    { id: 'line-13', area_id: 'area-smt', name: 'Línea 13', process: 'Reflow Oven Inspection', shift1_start: '06:00:00', shift1_target: 5, shift2_start: '14:00:00', shift2_target: 5, shift3_start: '22:00:00', shift3_target: 3, status: 'FALTA PERSONAL' },
-    { id: 'line-14', area_id: 'area-smt', name: 'Línea 14', process: 'SIPLACE Assembly', shift1_start: '06:00:00', shift1_target: 6, shift2_start: '14:00:00', shift2_target: 6, shift3_start: '22:00:00', shift3_target: 4, status: 'FALTA PERSONAL' },
-    { id: 'line-15', area_id: 'area-smt', name: 'Línea 15', process: 'AOI & Solder reflow', shift1_start: '06:00:00', shift1_target: 4, shift2_start: '14:00:00', shift2_target: 4, shift3_start: '22:00:00', shift3_target: 2, status: 'PLANTILLA COMPLETA' },
-    { id: 'line-16', area_id: 'area-smt', name: 'Línea 16', process: 'X-Ray BGA Check', shift1_start: '06:00:00', shift1_target: 4, shift2_start: '14:00:00', shift2_target: 4, shift3_start: '22:00:00', shift3_target: 2, status: 'PLANTILLA COMPLETA' },
+    { id: 'line-11', area_id: 'area-smt', name: 'Línea 11', process: 'Solder Paste Printing', shift1_start: '06:00:00', shift1_target: 4, shift2_start: '14:00:00', shift2_target: 4, shift3_start: '22:00:00', shift3_target: 3, status: 'FALTA PERSONAL', operating_status: 'Encendida' },
+    { id: 'line-12', area_id: 'area-smt', name: 'Línea 12', process: 'Chip Shooting SMT', shift1_start: '06:00:00', shift1_target: 4, shift2_start: '14:00:00', shift2_target: 4, shift3_start: '22:00:00', shift3_target: 3, status: 'PLANTILLA COMPLETA', operating_status: 'Encendida' },
+    { id: 'line-13', area_id: 'area-smt', name: 'Línea 13', process: 'Reflow Oven Inspection', shift1_start: '06:00:00', shift1_target: 5, shift2_start: '14:00:00', shift2_target: 5, shift3_start: '22:00:00', shift3_target: 3, status: 'FALTA PERSONAL', operating_status: 'Encendida' },
+    { id: 'line-14', area_id: 'area-smt', name: 'Línea 14', process: 'SIPLACE Assembly', shift1_start: '06:00:00', shift1_target: 6, shift2_start: '14:00:00', shift2_target: 6, shift3_start: '22:00:00', shift3_target: 4, status: 'FALTA PERSONAL', operating_status: 'Encendida' },
+    { id: 'line-15', area_id: 'area-smt', name: 'Línea 15', process: 'AOI & Solder reflow', shift1_start: '06:00:00', shift1_target: 4, shift2_start: '14:00:00', shift2_target: 4, shift3_start: '22:00:00', shift3_target: 2, status: 'PLANTILLA COMPLETA', operating_status: 'Encendida' },
+    { id: 'line-16', area_id: 'area-smt', name: 'Línea 16', process: 'X-Ray BGA Check', shift1_start: '06:00:00', shift1_target: 4, shift2_start: '14:00:00', shift2_target: 4, shift3_start: '22:00:00', shift3_target: 2, status: 'PLANTILLA COMPLETA', operating_status: 'Encendida' },
     
     // Assembly Area (6 lines)
-    { id: 'line-1', area_id: 'area-assembly', name: 'Línea 01', process: 'THT & Manual Solder', shift1_start: '06:00:00', shift1_target: 8, shift2_start: '14:00:00', shift2_target: 8, shift3_start: '22:00:00', shift3_target: 6, status: 'FALTA PERSONAL' },
-    { id: 'line-2', area_id: 'area-assembly', name: 'Línea 02', process: 'Box Build & Test', shift1_start: '06:00:00', shift1_target: 5, shift2_start: '14:00:00', shift2_target: 5, shift3_start: '22:00:00', shift3_target: 4, status: 'PLANTILLA COMPLETA' },
-    { id: 'line-3', area_id: 'area-assembly', name: 'Línea 03', process: 'Cable Harness Routing', shift1_start: '06:00:00', shift1_target: 6, shift2_start: '14:00:00', shift2_target: 6, shift3_start: '22:00:00', shift3_target: 4, status: 'FALTA PERSONAL' },
-    { id: 'line-4', area_id: 'area-assembly', name: 'Línea 04', process: 'Mechanical Fasteners', shift1_start: '06:00:00', shift1_target: 6, shift2_start: '14:00:00', shift2_target: 6, shift3_start: '22:00:00', shift3_target: 4, status: 'PLANTILLA COMPLETA' },
-    { id: 'line-5', area_id: 'area-assembly', name: 'Línea 05', process: 'Labeling & Packaging', shift1_start: '06:00:00', shift1_target: 8, shift2_start: '14:00:00', shift2_target: 8, shift3_start: '22:00:00', shift3_target: 6, status: 'FALTA PERSONAL' },
-    { id: 'line-6', area_id: 'area-assembly', name: 'Línea 06', process: 'Final Quality Audit', shift1_start: '06:00:00', shift1_target: 5, shift2_start: '14:00:00', shift2_target: 5, shift3_start: '22:00:00', shift3_target: 3, status: 'FALTA PERSONAL' },
+    { id: 'line-1', area_id: 'area-assembly', name: 'Línea 01', process: 'THT & Manual Solder', shift1_start: '06:00:00', shift1_target: 8, shift2_start: '14:00:00', shift2_target: 8, shift3_start: '22:00:00', shift3_target: 6, status: 'FALTA PERSONAL', operating_status: 'Encendida' },
+    { id: 'line-2', area_id: 'area-assembly', name: 'Línea 02', process: 'Box Build & Test', shift1_start: '06:00:00', shift1_target: 5, shift2_start: '14:00:00', shift2_target: 5, shift3_start: '22:00:00', shift3_target: 4, status: 'PLANTILLA COMPLETA', operating_status: 'Encendida' },
+    { id: 'line-3', area_id: 'area-assembly', name: 'Línea 03', process: 'Cable Harness Routing', shift1_start: '06:00:00', shift1_target: 6, shift2_start: '14:00:00', shift2_target: 6, shift3_start: '22:00:00', shift3_target: 4, status: 'FALTA PERSONAL', operating_status: 'Encendida' },
+    { id: 'line-4', area_id: 'area-assembly', name: 'Línea 04', process: 'Mechanical Fasteners', shift1_start: '06:00:00', shift1_target: 6, shift2_start: '14:00:00', shift2_target: 6, shift3_start: '22:00:00', shift3_target: 4, status: 'PLANTILLA COMPLETA', operating_status: 'Encendida' },
+    { id: 'line-5', area_id: 'area-assembly', name: 'Línea 05', process: 'Labeling & Packaging', shift1_start: '06:00:00', shift1_target: 8, shift2_start: '14:00:00', shift2_target: 8, shift3_start: '22:00:00', shift3_target: 6, status: 'FALTA PERSONAL', operating_status: 'Encendida' },
+    { id: 'line-6', area_id: 'area-assembly', name: 'Línea 06', process: 'Final Quality Audit', shift1_start: '06:00:00', shift1_target: 5, shift2_start: '14:00:00', shift2_target: 5, shift3_start: '22:00:00', shift3_target: 3, status: 'FALTA PERSONAL', operating_status: 'Encendida' },
     
     // Testing Area (4 lines)
-    { id: 'line-test-a', area_id: 'area-testing', name: 'Test Cell Alpha', process: 'ICT Test Fixtures', shift1_start: '06:00:00', shift1_target: 3, shift2_start: '14:00:00', shift2_target: 3, shift3_start: '22:00:00', shift3_target: 2, status: 'FALTA PERSONAL' },
-    { id: 'line-test-b', area_id: 'area-testing', name: 'Test Cell Beta', process: 'Functional Board testing', shift1_start: '06:00:00', shift1_target: 2, shift2_start: '14:00:00', shift2_target: 2, shift3_start: '22:00:00', shift3_target: 1, status: 'PLANTILLA COMPLETA' },
-    { id: 'line-test-c', area_id: 'area-testing', name: 'Test Cell Gamma', process: 'Burn-in Chamber testing', shift1_start: '06:00:00', shift1_target: 3, shift2_start: '14:00:00', shift2_target: 3, shift3_start: '22:00:00', shift3_target: 2, status: 'PLANTILLA COMPLETA' },
-    { id: 'line-test-d', area_id: 'area-testing', name: 'Test Cell Delta', process: 'RF & Calibration Lab', shift1_start: '06:00:00', shift1_target: 2, shift2_start: '14:00:00', shift2_target: 2, shift3_start: '22:00:00', shift3_target: 1, status: 'FALTA PERSONAL' }
+    { id: 'line-test-a', area_id: 'area-testing', name: 'Test Cell Alpha', process: 'ICT Test Fixtures', shift1_start: '06:00:00', shift1_target: 3, shift2_start: '14:00:00', shift2_target: 3, shift3_start: '22:00:00', shift3_target: 2, status: 'FALTA PERSONAL', operating_status: 'Encendida' },
+    { id: 'line-test-b', area_id: 'area-testing', name: 'Test Cell Beta', process: 'Functional Board testing', shift1_start: '06:00:00', shift1_target: 2, shift2_start: '14:00:00', shift2_target: 2, shift3_start: '22:00:00', shift3_target: 1, status: 'PLANTILLA COMPLETA', operating_status: 'Encendida' },
+    { id: 'line-test-c', area_id: 'area-testing', name: 'Test Cell Gamma', process: 'Burn-in Chamber testing', shift1_start: '06:00:00', shift1_target: 3, shift2_start: '14:00:00', shift2_target: 3, shift3_start: '22:00:00', shift3_target: 2, status: 'PLANTILLA COMPLETA', operating_status: 'Encendida' },
+    { id: 'line-test-d', area_id: 'area-testing', name: 'Test Cell Delta', process: 'RF & Calibration Lab', shift1_start: '06:00:00', shift1_target: 2, shift2_start: '14:00:00', shift2_target: 2, shift3_start: '22:00:00', shift3_target: 1, status: 'FALTA PERSONAL', operating_status: 'Encendida' }
   ];
 
   const empleados = [
@@ -488,6 +489,26 @@ export const recalculateLineState = (lineId: string) => {
   if (lineIdx === -1) return;
 
   const line = lineas[lineIdx];
+  
+  if (line.operating_status === 'Apagada') {
+    // Resolve any active downtime logs for this line
+    const downtimeLogs = loadTable('tiempos_muertos');
+    const activeLogIdx = downtimeLogs.findIndex(log => log.line_id === lineId && !log.resolved);
+    if (activeLogIdx !== -1) {
+      const log = downtimeLogs[activeLogIdx];
+      const now = new Date();
+      const start = new Date(log.start_time);
+      const duration = Math.max(1, Math.round((now.getTime() - start.getTime()) / (60 * 1000)));
+      log.end_time = now.toISOString();
+      log.duration_minutes = duration;
+      log.resolved = true;
+      downtimeLogs[activeLogIdx] = log;
+      saveTable('tiempos_muertos', downtimeLogs);
+      dispatchDbChange('tiempos_muertos', 'UPDATE', log);
+    }
+    return;
+  }
+
   const escaneosList = loadTable('escaneos');
 
   // Filter only successful scans on this line
@@ -649,7 +670,7 @@ export function getDonutColor(pct: number): string {
 
 // Helper for Line Staffing Integration Time (minutes from shift start until template completion or last scan)
 export function getLineIntegrationTimeMinutes(line: any, scansList: any[]): number {
-  if (!line) return 0;
+  if (!line || line.operating_status === 'Apagada') return 0;
   const now = new Date();
   const todayLocalStr = getLocalDateString(now);
   const shiftInfo = getCurrentShift(line, now, 15);
@@ -691,6 +712,10 @@ export function getLineIntegrationTimeMinutes(line: any, scansList: any[]): numb
 // Canonical Helper for Total Line Downtime Minutes (resolved + active for target date or today)
 export function getLineDowntimeMinutes(lineId: string, downtimesList: any[], dateStr?: string): number {
   if (!lineId || !downtimesList) return 0;
+  const lineas = loadTable('lineas');
+  const line = lineas.find((l: any) => l.id === lineId);
+  if (line && line.operating_status === 'Apagada') return 0;
+
   const targetDate = dateStr || getLocalDateString(new Date());
 
   const lineDts = downtimesList.filter((d: any) => {
@@ -868,8 +893,37 @@ export const calculateLineMetrics = (
 ) => {
   const lineas = (linesList && linesList.length > 0) ? linesList : loadTable('lineas');
   const line = lineas.find((l: any) => l.id === lineId);
-
   const now = new Date();
+
+  if (line && line.operating_status === 'Apagada') {
+    return {
+      lineId,
+      target: 0,
+      normalTarget: 0,
+      coverageTarget: 0,
+      scannedCount: 0,
+      certifiedCount: 0,
+      uncertifiedCount: 0,
+      qualifiedCoveragePct: 0,
+      positionsDetails: {} as Record<string, any>,
+      coveragePct: 0,
+      missingCount: 0,
+      statusColor: '#94A3B8', // Gray
+      statusBadgeText: 'LÍNEA APAGADA',
+      statusEmoji: '⚫',
+      isCoverageActive: false,
+      validScansTodayShift: 0,
+      totalScansInDb: 0,
+      todayLocalStr: getLocalDateString(now),
+      coverageDetails: null,
+      curTimeStr: '',
+      startStr: '',
+      endStr: '',
+      stage: 'INICIO_TURNO' as any,
+      activeShiftName: ''
+    };
+  }
+
   const todayLocalStr = getLocalDateString(now);
   const targetInfo = getActiveStaffingTarget(lineId, coveragesList, lineas);
   const { 

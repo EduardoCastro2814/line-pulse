@@ -227,21 +227,25 @@ export const TvDashboard: React.FC = () => {
               cardWidthClass = 'w-[280px] h-[225px]';
             }
 
+            const isLineOff = line.operating_status === 'Apagada';
+
             return (
               <div
                 key={line.id}
                 onClick={() => navigate(`/linea/${line.id}?tv=true`)}
-                style={{ borderColor: donutColor }}
+                style={{ borderColor: isLineOff ? '#CBD5E1' : donutColor }}
                 className={`${cardWidthClass} ${
                   isCoverageActive 
                     ? 'bg-blue-50/50 hover:bg-blue-50/70 shadow-blue-100' 
+                    : isLineOff
+                    ? 'bg-[#F8FAFC] border-slate-300'
                     : 'bg-white hover:bg-slate-50'
                 } border-2 hover:shadow-xl rounded-2xl transition-all flex flex-col justify-between p-4 cursor-pointer select-none relative overflow-hidden shrink-0 shadow-sm hover:scale-[1.01]`}
               >
                 {/* 1. Nombre Línea */}
                 <div className="flex justify-between items-center">
                   <div className="flex items-center gap-2">
-                    <span className="text-xl">{statusEmoji}</span>
+                    <span className="text-xl">{isLineOff ? '⚫' : statusEmoji}</span>
                     <span className="text-lg font-black text-slate-900 uppercase tracking-wider font-mono truncate max-w-[190px]">
                       {line.name}
                     </span>
@@ -254,40 +258,53 @@ export const TvDashboard: React.FC = () => {
                   )}
                 </div>
 
-                {/* 2. Cobertura Donut Grande + 3. Escaneados / Plantilla (Inside Gauge) */}
+                {/* 2. Cobertura Donut Grande o Mensaje de Línea Apagada */}
                 <div className="flex flex-col items-center justify-center">
-                  <LargeDonutGauge
-                    percentage={pct}
-                    color={donutColor}
-                    present={present}
-                    target={target}
-                  />
+                  {isLineOff ? (
+                    <div className="flex flex-col items-center justify-center py-6 text-center select-none">
+                      <span className="text-sm font-black text-slate-500 uppercase tracking-wider font-mono bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200">
+                        ⚫ LÍNEA APAGADA
+                      </span>
+                      <span className="text-[9px] text-slate-400 font-extrabold mt-2 uppercase tracking-wider font-mono">
+                        Excluida de métricas
+                      </span>
+                    </div>
+                  ) : (
+                    <LargeDonutGauge
+                      percentage={pct}
+                      color={donutColor}
+                      present={present}
+                      target={target}
+                    />
+                  )}
                 </div>
 
                 {/* 4. Estado Indicador + 5. Tiempo Integración */}
                 <div className="flex justify-between items-center text-xs font-mono pt-2 border-t border-slate-100">
                   <div className="flex flex-col items-start">
-                    <span className="font-extrabold text-[10px] uppercase tracking-wide flex items-center gap-1" style={{ color: statusColor }}>
-                      {statusBadgeText}
+                    <span className="font-extrabold text-[10px] uppercase tracking-wide flex items-center gap-1" style={{ color: isLineOff ? '#64748B' : statusColor }}>
+                      {isLineOff ? '⚫ LÍNEA APAGADA' : statusBadgeText}
                     </span>
-                    {uncertified > 0 && (
+                    {!isLineOff && uncertified > 0 && (
                       <span className="text-[9px] text-amber-600 font-black flex items-center gap-0.5 mt-0.5 animate-pulse">
                         ⚠️ {uncertified} sin cert.
                       </span>
                     )}
                   </div>
                   
-                  <div className="flex flex-col items-end">
-                    <span className="text-[10px] text-slate-600 font-extrabold flex items-center gap-1">
-                      <span>Integración:</span>
-                      <strong className="text-slate-900 font-mono font-black">{integrationMin}m</strong>
-                    </span>
-                    {dtMin > 0 && (
-                      <span className="text-[9px] text-amber-700 font-extrabold bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200 mt-0.5">
-                        T. Muerto: {dtMin}m
+                  {!isLineOff && (
+                    <div className="flex flex-col items-end">
+                      <span className="text-[10px] text-slate-600 font-extrabold flex items-center gap-1">
+                        <span>Integración:</span>
+                        <strong className="text-slate-900 font-mono font-black">{integrationMin}m</strong>
                       </span>
-                    )}
-                  </div>
+                      {dtMin > 0 && (
+                        <span className="text-[9px] text-amber-700 font-extrabold bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200 mt-0.5">
+                          T. Muerto: {dtMin}m
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             );

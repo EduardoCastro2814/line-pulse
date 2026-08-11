@@ -40,6 +40,13 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
   // Modal State for + Nueva Línea
   const [isLineCreateModalOpen, setIsLineCreateModalOpen] = useState(false);
 
+  // Estado Operativo Modal States
+  const [isStatusChangeModalOpen, setIsStatusChangeModalOpen] = useState(false);
+  const [pendingStatusChange, setPendingStatusChange] = useState<'Encendida' | 'Apagada' | null>(null);
+  const [operatorBadgeInput, setOperatorBadgeInput] = useState('');
+  const [reasonSelect, setReasonSelect] = useState<'Mantenimiento' | 'Ramp Up' | 'Corrida Piloto'>('Mantenimiento');
+  const [statusChangeError, setStatusChangeError] = useState('');
+
   // Line editing form
   const [lineForm, setLineForm] = useState({
     id: '',
@@ -278,6 +285,90 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
       }
     } catch (err: any) {
       showFeedback('error', `Error: ${err.message}`);
+    }
+  };
+
+  // Confirm Line Status Change (On/Off) and log to History table
+  const handleConfirmStatusChange = async () => {
+    setStatusChangeError('');
+    const badge = operatorBadgeInput.trim();
+    if (!badge) {
+      setStatusChangeError('Ingrese su número de empleado');
+      return;
+    }
+    if (!/^\d+$/.test(badge)) {
+      setStatusChangeError('El número de empleado debe ser numérico');
+      return;
+    }
+    if (!pendingStatusChange || !selectedLineId) return;
+
+    try {
+      const selectedLine = lines.find(l => l.id === selectedLineId);
+      if (!selectedLine) return;
+
+      const oldStatus = selectedLine.operating_status || 'Encendida';
+      const newStatus = pendingStatusChange;
+
+      // 1. Insert history record
+      const now = new Date();
+      const dateStr = getLocalDateString(now);
+      const timeStr = now.toTimeString().split(' ')[0]; // "HH:MM:SS"
+
+      const historyPayload = {
+        line_id: selectedLineId,
+        fecha: dateStr,
+        hora: timeStr,
+        numero_empleado: badge,
+        estado_anterior: oldStatus,
+        estado_nuevo: newStatus,
+        motivo: reasonSelect
+      };
+
+      const { error: histError } = await supabase.from('historial_estados_linea').insert(historyPayload);
+      if (histError) {
+        setStatusChangeError(`Error al guardar historial: ${histError.message}`);
+        return;
+      }
+
+      // 2. Update line operating_status in Supabase
+      const { error: lineError } = await supabase.from('lineas').update({
+        operating_status: newStatus
+      }).eq('id', selectedLineId);
+
+      if (lineError) {
+        setStatusChangeError(`Error al actualizar línea: ${lineError.message}`);
+        return;
+      }
+
+      // 3. If turning off, resolve any active downtime logs
+      if (newStatus === 'Apagada') {
+        const { data: activeLogs } = await supabase
+          .from('tiempos_muertos')
+          .select('*')
+          .eq('line_id', selectedLineId)
+          .eq('resolved', false);
+        
+        if (activeLogs && activeLogs.length > 0) {
+          for (const log of activeLogs) {
+            const start = new Date(log.start_time);
+            const duration = Math.max(1, Math.round((now.getTime() - start.getTime()) / 60000));
+            await supabase
+              .from('tiempos_muertos')
+              .update({
+                end_time: now.toISOString(),
+                duration_minutes: duration,
+                resolved: true
+              })
+              .eq('id', log.id);
+          }
+        }
+      }
+
+      showFeedback('success', `✅ Línea ${newStatus === 'Apagada' ? 'apagada' : 'encendida'} correctamente`);
+      setIsStatusChangeModalOpen(false);
+      loadData();
+    } catch (err: any) {
+      setStatusChangeError(`Error: ${err.message}`);
     }
   };
 
@@ -589,6 +680,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
   let totalDowntimeToday = 0;
 
   lines.forEach((line: any) => {
+    if (line.operating_status === 'Apagada') return;
     const metrics = calculateLineMetrics(line.id, posiciones, scans, coverages, lines, stationRequirements, trainingRecords);
     totalRequired += metrics.target;
     totalPresent += metrics.scannedCount;
@@ -667,7 +759,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
         const [lStartH, lStartM] = (lineShift.startTimeStr || '06:00:00').split(':').map(Number);
         const lShiftStartMs = new Date(now.getFullYear(), now.getMonth(), now.getDate(), lStartH, lStartM, 0).getTime();
 
-        if (slot.timestampMs < lShiftStartMs) {
+        if (slot.timestampMs < lShiftStartMs || l.operating_status === 'Apagada') {
           row[l.name] = 0;
         } else {
           const lineScansUpToSlot = scans.filter((s: any) => {
@@ -923,6 +1015,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                     const { target, scannedCount: present, coveragePct: pct, statusEmoji, statusColor, isCoverageActive } = metrics;
                     const integrationMin = getLineIntegrationTimeMinutes(line, scans);
                     const isSelected = selectedLineId === line.id;
+                    const isLineOff = line.operating_status === 'Apagada';
 
                   return (
                     <tr
@@ -932,24 +1025,33 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                         setRightPanelMode('analytics');
                       }}
                       className={`transition-colors cursor-pointer select-none ${
-                        isSelected ? 'bg-[#005486]/10 border-l-4 border-l-[#005486]' : 'hover:bg-[#F5F7FA]'
+                        isSelected 
+                          ? 'bg-[#005486]/10 border-l-4 border-l-[#005486]' 
+                          : isLineOff
+                          ? 'bg-slate-50/40 text-slate-400 hover:bg-[#F5F7FA]'
+                          : 'hover:bg-[#F5F7FA]'
                       }`}
                     >
-                      <td className="py-2.5 px-3 text-center">{statusEmoji}</td>
-                      <td className="py-2.5 px-3 font-extrabold text-slate-900">
+                      <td className="py-2.5 px-3 text-center">{isLineOff ? '⚫' : statusEmoji}</td>
+                      <td className={`py-2.5 px-3 font-extrabold ${isLineOff ? 'text-slate-500' : 'text-slate-900'}`}>
                         {line.name}
-                        {isCoverageActive && (
+                        {isLineOff && (
+                          <span className="ml-1.5 text-[9px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded font-black font-mono">APAGADA</span>
+                        )}
+                        {!isLineOff && isCoverageActive && (
                           <span className="ml-1 text-[9px] text-blue-600 bg-blue-50 px-1 rounded font-bold">Comedor</span>
                         )}
                       </td>
                       <td className="py-2.5 px-3">
-                        <span className="font-mono font-bold" style={{ color: statusColor }}>{pct}%</span>
+                        <span className="font-mono font-bold" style={{ color: isLineOff ? '#94A3B8' : statusColor }}>
+                          {isLineOff ? '-' : `${pct}%`}
+                        </span>
                       </td>
                       <td className="py-2.5 px-3 font-mono">
-                        {present}/{target}
+                        {isLineOff ? '-' : `${present}/${target}`}
                       </td>
                       <td className="py-2.5 px-3 font-mono text-slate-600">
-                        {integrationMin > 0 ? <span className="text-amber-600 font-bold">{integrationMin}m</span> : '0m'}
+                        {isLineOff ? '0m' : (integrationMin > 0 ? <span className="text-amber-600 font-bold">{integrationMin}m</span> : '0m')}
                       </td>
                       <td className="py-2.5 px-3 text-right">
                         <div className="flex items-center justify-end gap-1">
@@ -1138,6 +1240,44 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                         />
                       </div>
                     </div>
+
+                    {lineForm.id && selectedLine && (
+                      <div className="border border-[#DCE3EA] rounded-xl p-3.5 bg-white space-y-3 shadow-sm">
+                        <span className="font-extrabold text-[#005486] uppercase tracking-wider text-[11px] block font-mono">
+                          Estado Operativo de la Línea
+                        </span>
+                        <div className="flex items-center justify-between gap-4">
+                          <div>
+                            <span className="text-[11px] text-slate-500 font-semibold block mb-1">Estado de Operación Actual:</span>
+                            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-black uppercase font-mono shadow-sm ${
+                              selectedLine.operating_status === 'Apagada'
+                                ? 'bg-slate-100 text-slate-600 border border-slate-300'
+                                : 'bg-emerald-100 text-emerald-800 border border-emerald-300 animate-pulse'
+                            }`}>
+                              {selectedLine.operating_status === 'Apagada' ? '⚫ APAGADA' : '🟢 ENCENDIDA'}
+                            </span>
+                          </div>
+                          
+                          <button
+                            onClick={() => {
+                              setPendingStatusChange(selectedLine.operating_status === 'Apagada' ? 'Encendida' : 'Apagada');
+                              setOperatorBadgeInput('');
+                              setReasonSelect('Mantenimiento');
+                              setStatusChangeError('');
+                              setIsStatusChangeModalOpen(true);
+                            }}
+                            type="button"
+                            className={`px-4 py-2 rounded-xl text-xs font-bold font-sans transition-all shadow-sm cursor-pointer border flex items-center gap-1.5 ${
+                              selectedLine.operating_status === 'Apagada'
+                                ? 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-600'
+                                : 'bg-slate-700 hover:bg-slate-600 text-white border-slate-700'
+                            }`}
+                          >
+                            {selectedLine.operating_status === 'Apagada' ? 'Encender Línea' : 'Apagar Línea'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
 
                     <div className="border border-[#DCE3EA] rounded-xl p-3 bg-[#F5F7FA] space-y-2">
                       <span className="font-extrabold text-[#005486] uppercase tracking-wider text-[11px] block font-mono">
@@ -1872,6 +2012,93 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                 className="bg-[#005486] hover:bg-[#003f66] text-white px-5 py-2 rounded-xl text-xs font-extrabold shadow-sm transition-all cursor-pointer"
               >
                 Guardar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL CAMBIO DE ESTADO OPERATIVO (ENCENDER/APAGAR LÍNEA) */}
+      {isStatusChangeModalOpen && pendingStatusChange && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white border border-[#DCE3EA] rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+            {/* Modal Header */}
+            <div className="bg-[#005486] px-5 py-4 flex items-center justify-between text-white">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">⚫</span>
+                <h3 className="text-sm font-black tracking-wide uppercase font-mono">
+                  {pendingStatusChange === 'Apagada' ? 'Apagar Línea de Producción' : 'Encender Línea de Producción'}
+                </h3>
+              </div>
+              <button
+                onClick={() => setIsStatusChangeModalOpen(false)}
+                className="text-white/80 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-all cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 space-y-4">
+              <p className="text-xs text-slate-600 font-semibold leading-relaxed">
+                Confirmación para {pendingStatusChange === 'Apagada' ? 'desactivar y apagar' : 'activar y encender'} la línea.
+                {pendingStatusChange === 'Apagada' 
+                  ? ' Esto excluirá a la línea de todos los KPIs globales, ausencias y downtime, y rechazará cualquier escaneo de operador.' 
+                  : ' Esto restablecerá los escaneos, downtime y la cobertura global de la línea.'}
+              </p>
+
+              {statusChangeError && (
+                <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs font-bold font-sans">
+                  ⚠️ {statusChangeError}
+                </div>
+              )}
+
+              {/* Número de Empleado */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Número de Empleado (Autoriza) <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ej. 100234"
+                  value={operatorBadgeInput}
+                  onChange={(e) => setOperatorBadgeInput(e.target.value)}
+                  className="w-full bg-white border border-[#DCE3EA] rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-[#005486] font-mono font-bold"
+                />
+              </div>
+
+              {/* Motivo (Dropdown cerrado) */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Motivo de Cambio <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={reasonSelect}
+                  onChange={(e) => setReasonSelect(e.target.value as any)}
+                  className="w-full bg-white border border-[#DCE3EA] rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-[#005486] font-bold cursor-pointer"
+                >
+                  <option value="Mantenimiento">Mantenimiento</option>
+                  <option value="Ramp Up">Ramp Up</option>
+                  <option value="Corrida Piloto">Corrida Piloto</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="bg-[#F5F7FA] px-5 py-3 border-t border-[#DCE3EA] flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIsStatusChangeModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-200 transition-all cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmStatusChange}
+                className="bg-[#005486] hover:bg-[#003f66] text-white px-5 py-2 rounded-xl text-xs font-extrabold shadow-sm transition-all cursor-pointer"
+              >
+                Confirmar
               </button>
             </div>
           </div>

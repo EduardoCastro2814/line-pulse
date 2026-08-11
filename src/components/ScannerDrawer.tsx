@@ -84,6 +84,16 @@ export const ScannerDrawer: React.FC<ScannerDrawerProps> = ({ isOpen, onClose })
     const lineObj = lines.find(l => l.id === selectedLine);
     if (!lineObj) return;
 
+    if (lineObj.operating_status === 'Apagada') {
+      console.log('Resultado validación: RECHAZADO (Línea apagada)');
+      playBeep('error');
+      setFeedback({
+        status: 'error',
+        message: '❌ Escaneo inválido. La línea se encuentra apagada.'
+      });
+      return;
+    }
+
     // Load active scans, coverages, and positions for selected line to validate limit
     const { data: dbScans } = await supabase.from('escaneos').select('*').eq('line_id', selectedLine);
     const { data: dbCoverages } = await supabase.from('coberturas').select('*').eq('line_id', selectedLine);

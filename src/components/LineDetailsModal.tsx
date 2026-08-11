@@ -231,6 +231,15 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
     const cleanNum = (empNum || '').trim();
     if (!cleanNum) return;
 
+    if (line?.operating_status === 'Apagada') {
+      setScanFeedback({
+        status: 'error',
+        message: '❌ Escaneo inválido. La línea se encuentra apagada.'
+      });
+      setTimeout(() => setScanFeedback({ status: null, message: '' }), 3500);
+      return;
+    }
+
     // REGLA 1: Numeric Characters ONLY
     if (!/^\d+$/.test(cleanNum)) {
       setScanFeedback({
