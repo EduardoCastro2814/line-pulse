@@ -300,11 +300,31 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
       setStatusChangeError('El número de empleado debe ser numérico');
       return;
     }
-    if (!pendingStatusChange || !selectedLineId) return;
+
+    if (!pendingStatusChange) {
+      setStatusChangeError('Error: No se ha especificado el nuevo estado.');
+      return;
+    }
+
+    if (!selectedLineId) {
+      setStatusChangeError('Error: ID de línea no especificado.');
+      return;
+    }
 
     try {
       const selectedLine = lines.find(l => l.id === selectedLineId);
-      if (!selectedLine) return;
+      if (!selectedLine) {
+        setStatusChangeError('Error: No se encontró la línea seleccionada en el sistema.');
+        return;
+      }
+
+      const lineaId = selectedLine.id;
+      const lineaNombre = selectedLine.name;
+
+      if (!lineaId) {
+        setStatusChangeError(`Error: El ID para la línea "${lineaNombre}" es nulo.`);
+        return;
+      }
 
       const oldStatus = selectedLine.operating_status || 'Encendida';
       const newStatus = pendingStatusChange;
@@ -315,7 +335,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
       const timeStr = now.toTimeString().split(' ')[0]; // "HH:MM:SS"
 
       const historyPayload = {
-        line_id: selectedLineId,
+        linea_id: lineaId,
         fecha: dateStr,
         hora: timeStr,
         numero_empleado: badge,

@@ -494,17 +494,19 @@ export const ReportsView: React.FC = () => {
       if (rDate < dateRange.start || rDate > dateRange.end) return false;
 
       // Line filter
-      if (selectedLine !== 'ALL' && r.line_id !== selectedLine) return false;
+      const recordLineId = r.linea_id || r.line_id;
+      if (selectedLine !== 'ALL' && recordLineId !== selectedLine) return false;
 
       // Area filter
       if (selectedArea !== 'ALL') {
-        const lineObj = lines.find(l => l.id === r.line_id);
+        const lineObj = lines.find(l => l.id === recordLineId);
         if (!lineObj || lineObj.area_id !== selectedArea) return false;
       }
 
       return true;
     }).map(r => {
-      const lineObj = lines.find(l => l.id === r.line_id);
+      const recordLineId = r.linea_id || r.line_id;
+      const lineObj = lines.find(l => l.id === recordLineId);
       return {
         id: r.id,
         date: r.fecha,
