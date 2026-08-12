@@ -329,13 +329,14 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
       const oldStatus = selectedLine.operating_status || 'Encendida';
       const newStatus = pendingStatusChange;
 
-      // 1. Insert history record
+      // 1. Insert history record (non-blocking)
       const now = new Date();
       const dateStr = getLocalDateString(now);
       const timeStr = now.toTimeString().split(' ')[0]; // "HH:MM:SS"
 
       const historyPayload = {
         linea_id: lineaId,
+        nombre_linea: lineaNombre,
         fecha: dateStr,
         hora: timeStr,
         numero_empleado: badge,
@@ -344,10 +345,13 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
         motivo: reasonSelect
       };
 
-      const { error: histError } = await supabase.from('historial_estados_linea').insert(historyPayload);
-      if (histError) {
-        setStatusChangeError(`Error al guardar historial: ${histError.message}`);
-        return;
+      try {
+        const { error: histError } = await supabase.from('historial_estados_linea').insert(historyPayload);
+        if (histError) {
+          console.error('Error al guardar historial de cambio de estado (no crítico):', histError.message);
+        }
+      } catch (insertErr) {
+        console.error('Excepción al intentar insertar el historial (no crítico):', insertErr);
       }
 
       // 2. Update line operating_status in Supabase

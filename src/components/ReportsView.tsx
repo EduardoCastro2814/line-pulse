@@ -511,7 +511,7 @@ export const ReportsView: React.FC = () => {
         id: r.id,
         date: r.fecha,
         time: r.hora,
-        lineName: lineObj ? lineObj.name : 'N/A',
+        lineName: lineObj ? lineObj.name : (r.nombre_linea || 'N/A'),
         employeeBadge: r.numero_empleado,
         oldStatus: r.estado_anterior,
         newStatus: r.estado_nuevo,
