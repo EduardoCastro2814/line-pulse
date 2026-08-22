@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { supabase, calculateLineMetrics, mapScanFromSupabase, getLineIntegrationTimeMinutes, getLocalDateString, getCurrentShift } from '../lib/supabaseClient';
+import { supabase, calculateLineMetrics, mapScanFromSupabase, getLineIntegrationTimeMinutes, getLocalDateString, getCurrentShift, getCertificationsMode } from '../lib/supabaseClient';
 import { Clock, Maximize, Minimize, LayoutDashboard } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
@@ -64,6 +64,19 @@ export const TvDashboard: React.FC = () => {
   
   // Fullscreen state
   const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Certifications Mode State
+  const [isCertModeActive, setIsCertModeActive] = useState(getCertificationsMode() === 'Activado');
+
+  useEffect(() => {
+    const handleModeChange = () => {
+      setIsCertModeActive(getCertificationsMode() === 'Activado');
+    };
+    window.addEventListener('certifications-mode-changed', handleModeChange);
+    return () => {
+      window.removeEventListener('certifications-mode-changed', handleModeChange);
+    };
+  }, []);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -269,6 +282,15 @@ export const TvDashboard: React.FC = () => {
                         Excluida de métricas
                       </span>
                     </div>
+                  ) : isCoverageActive && target === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-6 text-center select-none">
+                      <span className="text-sm font-black text-blue-600 bg-blue-50 px-3 py-1.5 rounded-xl border border-blue-200 uppercase tracking-wider font-mono animate-pulse">
+                        🍽️ SIN COBERTURA
+                      </span>
+                      <span className="text-[9px] text-slate-400 font-extrabold mt-2 uppercase tracking-wider font-mono">
+                        COBERTURA COMEDOR = 0
+                      </span>
+                    </div>
                   ) : (
                     <LargeDonutGauge
                       percentage={pct}
@@ -285,7 +307,7 @@ export const TvDashboard: React.FC = () => {
                     <span className="font-extrabold text-[10px] uppercase tracking-wide flex items-center gap-1" style={{ color: isLineOff ? '#64748B' : statusColor }}>
                       {isLineOff ? '⚫ LÍNEA APAGADA' : statusBadgeText}
                     </span>
-                    {!isLineOff && uncertified > 0 && (
+                    {!isLineOff && isCertModeActive && uncertified > 0 && (
                       <span className="text-[9px] text-amber-600 font-black flex items-center gap-0.5 mt-0.5 animate-pulse">
                         ⚠️ {uncertified} sin cert.
                       </span>

@@ -33,6 +33,7 @@ export const loadTable = (tableName: string): any[] => {
       localStorage.removeItem(getStorageKey('stations'));
       localStorage.removeItem(getStorageKey('employee_competencies'));
       localStorage.removeItem(getStorageKey('historial_estados_linea'));
+      localStorage.removeItem(getStorageKey('global_settings'));
       // Fall through to seed
     } else {
       return parsed;
@@ -49,6 +50,50 @@ export const loadTable = (tableName: string): any[] => {
 // Helper to save table to localStorage
 export const saveTable = (tableName: string, data: any[]) => {
   localStorage.setItem(getStorageKey(tableName), JSON.stringify(data));
+};
+
+// Global Certifications Mode Settings Helpers
+export const getCertificationsMode = (): 'Activado' | 'Desactivado' => {
+  if (typeof window === 'undefined') return 'Activado';
+  const stored = localStorage.getItem('linepulse_modo_certificaciones');
+  if (stored === 'Activado' || stored === 'Desactivado') {
+    return stored;
+  }
+  
+  // fallback check in global_settings mock
+  try {
+    const settings = loadTable('global_settings');
+    const found = settings.find(s => s.key === 'modo_certificaciones');
+    if (found && (found.value === 'Activado' || found.value === 'Desactivado')) {
+      localStorage.setItem('linepulse_modo_certificaciones', found.value);
+      return found.value;
+    }
+  } catch (e) {
+    console.error('Error loading global setting:', e);
+  }
+  return 'Activado';
+};
+
+export const setCertificationsMode = async (mode: 'Activado' | 'Desactivado') => {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('linepulse_modo_certificaciones', mode);
+  }
+  if (isConfigured) {
+    try {
+      await supabase.from('global_settings').upsert({ key: 'modo_certificaciones', value: mode });
+    } catch (e) {
+      console.error('Error saving global setting to Supabase:', e);
+    }
+  } else {
+    const settings = loadTable('global_settings');
+    const idx = settings.findIndex(s => s.key === 'modo_certificaciones');
+    if (idx >= 0) {
+      settings[idx].value = mode;
+    } else {
+      settings.push({ key: 'modo_certificaciones', value: mode });
+    }
+    saveTable('global_settings', settings);
+  }
 };
 
 // Seed Data definition
@@ -456,6 +501,10 @@ function getSeedData(): Record<string, any[]> {
     certified: true
   }));
 
+  const global_settings = [
+    { key: 'modo_certificaciones', value: 'Activado' }
+  ];
+
   return {
     areas,
     turnos,
@@ -470,7 +519,8 @@ function getSeedData(): Record<string, any[]> {
     station_requirements,
     training_records,
     stations,
-    employee_competencies
+    employee_competencies,
+    global_settings
   };
 }
 
@@ -693,6 +743,17 @@ export function getLineIntegrationTimeMinutes(line: any, scansList: any[]): numb
   });
 
   if (activeScans.length === 0) {
+    // Check if coverage = 0 is active (if so, integration time is 0)
+    try {
+      const covs = loadTable('coberturas');
+      const targetInfo = getActiveStaffingTarget(line.id, covs);
+      if (targetInfo.isCoverageActive && targetInfo.target === 0) {
+        return 0;
+      }
+    } catch (e) {
+      console.error(e);
+    }
+
     if (now > shiftStartDate) {
       return Math.max(0, Math.floor((now.getTime() - shiftStartDate.getTime()) / 60000));
     }
@@ -803,7 +864,7 @@ export function getActiveStaffingStageAndWindow(
     const endMin = timeToMinutes(cov.end_time);
 
     if (curMin >= startMin && curMin < endMin) {
-      const coverageTarget = Number(cov.required_operators || 3);
+      const coverageTarget = cov.required_operators !== undefined && cov.required_operators !== null ? Number(cov.required_operators) : 3;
       return {
         stage: 'COBERTURA_COMEDOR',
         target: coverageTarget,
@@ -1061,16 +1122,23 @@ export const calculateLineMetrics = (
 
     if (occ) {
       employee = occ.employee;
-      const reqs = stationReqs
-        .filter((r: any) => r.station_name === pos.station_name)
-        .map((r: any) => r.training_name);
+      const certModeActive = getCertificationsMode() === 'Activado';
       
-      const completed = trainingRecs
-        .filter((t: any) => t.employee_number === employee.badge_id && t.status === 'Completado')
-        .map((t: any) => t.training_name);
+      if (certModeActive) {
+        const reqs = stationReqs
+          .filter((r: any) => r.station_name === pos.station_name)
+          .map((r: any) => r.training_name);
+        
+        const completed = trainingRecs
+          .filter((t: any) => t.employee_number === employee.badge_id && t.status === 'Completado')
+          .map((t: any) => t.training_name);
 
-      missingTrainings = reqs.filter((r: any) => !completed.includes(r));
-      isCertified = missingTrainings.length === 0;
+        missingTrainings = reqs.filter((r: any) => !completed.includes(r));
+        isCertified = missingTrainings.length === 0;
+      } else {
+        isCertified = true;
+        missingTrainings = [];
+      }
 
       if (isCertified) {
         certifiedCount++;
@@ -1119,7 +1187,11 @@ export const calculateLineMetrics = (
 
   const isTemplateComplete = cappedScanned >= target;
 
-  if (!isTemplateComplete) {
+  if (isCoverageActive && target === 0) {
+    statusColor = '#64748B'; // Slate gray
+    statusBadgeText = '🍽 COMEDOR SIN COBERTURA';
+    statusEmoji = '🍽';
+  } else if (!isTemplateComplete) {
     statusColor = '#EF4444'; // Red
     statusBadgeText = 'FALTA PERSONAL';
     statusEmoji = '🔴';

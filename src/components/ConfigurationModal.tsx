@@ -328,8 +328,8 @@ export const ConfigurationModal: React.FC<ConfigurationModalProps> = ({ isOpen, 
 
   // Add lunch relief coverage
   const handleSaveCoverage = async () => {
-    if (!covForm.start_time || !covForm.end_time || covForm.required_operators <= 0) {
-      showError('Suministre horas y un personal requerido mayor a 0.');
+    if (!covForm.start_time || !covForm.end_time || covForm.required_operators < 0) {
+      showError('Suministre horas y un personal requerido (0 o superior).');
       return;
     }
 
@@ -944,7 +944,7 @@ export const ConfigurationModal: React.FC<ConfigurationModalProps> = ({ isOpen, 
                         <label className="block text-[10px] text-slate-500 font-bold uppercase mb-1">Target Requerido</label>
                         <input
                           type="number"
-                          min="1"
+                          min="0"
                           value={covForm.required_operators}
                           onChange={(e) => setCovForm({ ...covForm, required_operators: Number(e.target.value) })}
                           className="w-full bg-white border border-[#DCE3EA] rounded-xl p-2 text-xs text-slate-800 font-mono font-bold"

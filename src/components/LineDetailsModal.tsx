@@ -1,5 +1,9 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { supabase, getActiveStaffingTarget, DEFAULT_SMT_LAYOUT, validateAndMapScanInsert, mapScanFromSupabase, calculateLineMetrics, getLocalDateString, getCurrentShift } from '../lib/supabaseClient';
+import { 
+  supabase, getActiveStaffingTarget, DEFAULT_SMT_LAYOUT, validateAndMapScanInsert, 
+  mapScanFromSupabase, calculateLineMetrics, getLocalDateString, getCurrentShift,
+  getCertificationsMode
+} from '../lib/supabaseClient';
 import { Clock, QrCode, Maximize, Minimize, CheckCircle2, AlertTriangle, ArrowLeft } from 'lucide-react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 
@@ -386,7 +390,7 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
 
         if (eventType === 'TURN_START' || eventType === 'MEAL_COVERAGE') {
           if (matchedPos) {
-            if (matchedPos.isCertified) {
+            if (!isCertModeActive || matchedPos.isCertified) {
               setScanFeedback({
                 status: 'success',
                 message: `✅ Operador certificado para la estación.`
@@ -526,7 +530,18 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
     }
   }, [isOpen]);
 
-  if (!isOpen || !line) return null;
+  // Certifications Mode State
+  const [isCertModeActive, setIsCertModeActive] = useState(getCertificationsMode() === 'Activado');
+
+  useEffect(() => {
+    const handleModeChange = () => {
+      setIsCertModeActive(getCertificationsMode() === 'Activado');
+    };
+    window.addEventListener('certifications-mode-changed', handleModeChange);
+    return () => {
+      window.removeEventListener('certifications-mode-changed', handleModeChange);
+    };
+  }, []);
 
   // Active Staffing Target & Coverage Calculations driven by UNIFIED calculateLineMetrics
   const metrics = calculateLineMetrics(line.id, posiciones, escaneos, coberturas, [line], stationRequirements, trainingRecords);
@@ -569,6 +584,8 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
 
   // Layout Image (Default SMT Blueprint if none uploaded)
   const layoutImageSrc = line.layout_url || DEFAULT_SMT_LAYOUT;
+
+  if (!isOpen || !line) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[#F5F7FA] text-slate-800 overflow-hidden font-sans select-none">
@@ -726,10 +743,10 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
                     className="text-[10px] font-extrabold uppercase tracking-wider block mt-1 pt-1 border-t border-slate-800/60"
                     style={{ color: markerColor }}
                   >
-                    {isOccupied ? (isCoverageActive ? 'Cobertura Activa' : (isCertified ? 'Certificado' : 'No Certificado')) : 'Vacante'}
+                    {isOccupied ? (isCoverageActive ? 'Cobertura Activa' : (isCertModeActive ? (isCertified ? 'Certificado' : 'No Certificado') : 'Ocupada')) : 'Vacante'}
                   </span>
 
-                  {isOccupied && !isCertified && !isCoverageActive && (
+                  {isCertModeActive && isOccupied && !isCertified && !isCoverageActive && (
                     <span className="text-[9px] text-amber-400 block mt-0.5 leading-tight font-sans font-bold">
                       Falta: {missingTrainings.join(', ')}
                     </span>
@@ -764,16 +781,28 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
         
         {/* Left: Large Circular Gauge & Coverage KPI */}
         <div className="flex items-center space-x-6">
-          <div className="flex items-center gap-6">
-            <div className="flex flex-col items-center">
-              <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1 font-mono">Cobert. Global</span>
-              <LargeCircularGauge percentage={coveragePct} color={statusColor} present={scannedCount} target={target} />
+          {isCoverageActive && target === 0 ? (
+            <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 px-5 py-3 rounded-2xl">
+              <span className="text-2xl animate-pulse">🍽️</span>
+              <div>
+                <span className="text-xs font-black text-blue-800 uppercase tracking-wider block">COMEDOR SIN COBERTURA</span>
+                <span className="text-[10px] text-slate-500 font-extrabold uppercase font-mono block">Cobertura comedor = 0 (Línea descubierta por diseño)</span>
+              </div>
             </div>
-            <div className="flex flex-col items-center">
-              <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1 font-mono">Cobert. Calificada</span>
-              <LargeCircularGauge percentage={qualifiedCoveragePct} color={qualifiedCoveragePct === 100 ? '#22C55E' : '#EAB308'} present={certifiedCount} target={target} />
+          ) : (
+            <div className="flex items-center gap-6">
+              <div className="flex flex-col items-center">
+                <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1 font-mono">Cobert. Global</span>
+                <LargeCircularGauge percentage={coveragePct} color={statusColor} present={scannedCount} target={target} />
+              </div>
+              {isCertModeActive && (
+                <div className="flex flex-col items-center">
+                  <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1 font-mono">Cobert. Calificada</span>
+                  <LargeCircularGauge percentage={qualifiedCoveragePct} color={qualifiedCoveragePct === 100 ? '#22C55E' : '#EAB308'} present={certifiedCount} target={target} />
+                </div>
+              )}
             </div>
-          </div>
+          )}
 
           <div className="flex flex-col justify-center">
             <span className="text-2xl font-black uppercase text-slate-900 font-mono tracking-wider">
@@ -786,9 +815,11 @@ export const LineDetailsModal: React.FC<LineDetailsModalProps> = ({
               >
                 {statusBadgeText}
               </span>
-              <span className="px-2 py-0.5 rounded-md text-xs font-mono font-extrabold bg-red-50 text-red-700 border border-red-200">
-                Faltantes: {missingCount}
-              </span>
+              {!(isCoverageActive && target === 0) && (
+                <span className="px-2 py-0.5 rounded-md text-xs font-mono font-extrabold bg-red-50 text-red-700 border border-red-200">
+                  Faltantes: {missingCount}
+                </span>
+              )}
             </div>
           </div>
         </div>

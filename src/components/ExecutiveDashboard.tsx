@@ -1,5 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { supabase, getActiveStaffingTarget, DEFAULT_SMT_LAYOUT, mapScanFromSupabase, calculateLineMetrics, getLineIntegrationTimeMinutes, getCurrentShift, getLocalDateString, getLineDowntimeMinutes } from '../lib/supabaseClient';
+import { 
+  supabase, getActiveStaffingTarget, DEFAULT_SMT_LAYOUT, mapScanFromSupabase, 
+  calculateLineMetrics, getLineIntegrationTimeMinutes, getCurrentShift, 
+  getLocalDateString, getLineDowntimeMinutes, getCertificationsMode 
+} from '../lib/supabaseClient';
 import { 
   Users, AlertTriangle, Clock, Percent, Search, Settings, ExternalLink, 
   BarChart2, Layers, Save, Upload, Plus, X, CheckCircle2, Edit, Award
@@ -44,8 +48,21 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
   const [isStatusChangeModalOpen, setIsStatusChangeModalOpen] = useState(false);
   const [pendingStatusChange, setPendingStatusChange] = useState<'Encendida' | 'Apagada' | null>(null);
   const [operatorBadgeInput, setOperatorBadgeInput] = useState('');
-  const [reasonSelect, setReasonSelect] = useState<'Mantenimiento' | 'Ramp Up' | 'Corrida Piloto'>('Mantenimiento');
+  const [reasonSelect, setReasonSelect] = useState<string>('Mantenimiento');
   const [statusChangeError, setStatusChangeError] = useState('');
+
+  // Certifications Mode State
+  const [isCertModeActive, setIsCertModeActive] = useState(getCertificationsMode() === 'Activado');
+
+  useEffect(() => {
+    const handleModeChange = () => {
+      setIsCertModeActive(getCertificationsMode() === 'Activado');
+    };
+    window.addEventListener('certifications-mode-changed', handleModeChange);
+    return () => {
+      window.removeEventListener('certifications-mode-changed', handleModeChange);
+    };
+  }, []);
 
   // Line editing form
   const [lineForm, setLineForm] = useState({
@@ -298,6 +315,11 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
     }
     if (!/^\d+$/.test(badge)) {
       setStatusChangeError('El número de empleado debe ser numérico');
+      return;
+    }
+
+    if (pendingStatusChange === 'Encendida' && !reasonSelect) {
+      setStatusChangeError('Seleccione el motivo de encendido');
       return;
     }
 
@@ -619,8 +641,8 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
 
   // Add Coverage
   const handleSaveCoverage = async () => {
-    if (!selectedLineId || !covForm.start_time || !covForm.end_time || covForm.required_operators <= 0) {
-      showFeedback('error', 'Ingrese horario y un número válido de operadores.');
+    if (!selectedLineId || !covForm.start_time || !covForm.end_time || covForm.required_operators < 0) {
+      showFeedback('error', 'Complete todos los campos. La meta debe ser 0 o superior.');
       return;
     }
 
@@ -706,6 +728,10 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
   lines.forEach((line: any) => {
     if (line.operating_status === 'Apagada') return;
     const metrics = calculateLineMetrics(line.id, posiciones, scans, coverages, lines, stationRequirements, trainingRecords);
+    
+    // Exclude line temporarily if it is currently in 0-person dining coverage
+    if (metrics.isCoverageActive && metrics.target === 0) return;
+
     totalRequired += metrics.target;
     totalPresent += metrics.scannedCount;
     totalCertified += metrics.certifiedCount || 0;
@@ -727,17 +753,22 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
   const todayLocalStr = getLocalDateString(new Date());
 
   // 1. TIEMPO MUERTO POR LÍNEA (Combinando tiempo de integración y eventos de tiempo muerto registrados)
-  const chartDowntimeData = lines.map((l: any) => {
-    const integrationMin = getLineIntegrationTimeMinutes(l, scans);
-    const downtimeEventsMin = getLineDowntimeMinutes(l.id, downtimes, todayLocalStr);
-    const sumMin = Math.max(integrationMin, downtimeEventsMin);
-    return {
-      name: l.name,
-      minutos: sumMin,
-      integrationMin,
-      downtimeEventsMin
-    };
-  });
+  const chartDowntimeData = lines
+    .filter((l: any) => {
+      const m = calculateLineMetrics(l.id, posiciones, scans, coverages, lines, stationRequirements, trainingRecords);
+      return !(m.isCoverageActive && m.target === 0);
+    })
+    .map((l: any) => {
+      const integrationMin = getLineIntegrationTimeMinutes(l, scans);
+      const downtimeEventsMin = getLineDowntimeMinutes(l.id, downtimes, todayLocalStr);
+      const sumMin = Math.max(integrationMin, downtimeEventsMin);
+      return {
+        name: l.name,
+        minutos: sumMin,
+        integrationMin,
+        downtimeEventsMin
+      };
+    });
 
   // Dynamic Y-axis scale calculation for Chart 1
   const maxDowntimeValue = Math.max(10, ...chartDowntimeData.map(d => d.minutos || 0));
@@ -779,6 +810,10 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
     const chartData = slots.map(slot => {
       const row: any = { time: slot.label };
       lines.forEach((l: any) => {
+        // Exclude lines in active 0-person dining coverage
+        const m = calculateLineMetrics(l.id, posiciones, scans, coverages, lines, stationRequirements, trainingRecords);
+        if (m.isCoverageActive && m.target === 0) return;
+
         const lineShift = getCurrentShift(l, new Date(slot.timestampMs), 15);
         const [lStartH, lStartM] = (lineShift.startTimeStr || '06:00:00').split(':').map(Number);
         const lShiftStartMs = new Date(now.getFullYear(), now.getMonth(), now.getDate(), lStartH, lStartM, 0).getTime();
@@ -835,7 +870,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
     <div className="bg-[#F5F7FA] text-slate-800 flex-grow h-full flex flex-col overflow-hidden p-4 space-y-4 font-sans select-none">
       
       {/* 1. TOP CORPORATE KPI SUMMARY RIBBON */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 shrink-0">
+      <div className={`grid grid-cols-2 ${isCertModeActive ? 'md:grid-cols-5' : 'md:grid-cols-4'} gap-3 shrink-0`}>
         <div className="bg-white border border-[#DCE3EA] p-3 rounded-xl flex items-center justify-between shadow-sm">
           <div>
             <span className="text-[10px] font-bold text-slate-500 tracking-wider uppercase block">Cobertura Global</span>
@@ -846,15 +881,17 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
           </div>
         </div>
 
-        <div className="bg-white border border-[#DCE3EA] p-3 rounded-xl flex items-center justify-between shadow-sm">
-          <div>
-            <span className="text-[10px] font-bold text-slate-500 tracking-wider uppercase block">Cobertura Calificada</span>
-            <span className="text-xl font-black font-mono text-emerald-600">{globalQualifiedCoveragePct}%</span>
+        {isCertModeActive && (
+          <div className="bg-white border border-[#DCE3EA] p-3 rounded-xl flex items-center justify-between shadow-sm">
+            <div>
+              <span className="text-[10px] font-bold text-slate-500 tracking-wider uppercase block">Cobertura Calificada</span>
+              <span className="text-xl font-black font-mono text-emerald-600">{globalQualifiedCoveragePct}%</span>
+            </div>
+            <div className="p-2 bg-emerald-50 rounded-lg text-emerald-600">
+              <Award className="w-4 h-4" />
+            </div>
           </div>
-          <div className="p-2 bg-emerald-50 rounded-lg text-emerald-600">
-            <Award className="w-4 h-4" />
-          </div>
-        </div>
+        )}
 
         <div className="bg-white border border-[#DCE3EA] p-3 rounded-xl flex items-center justify-between shadow-sm">
           <div>
@@ -1286,7 +1323,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                             onClick={() => {
                               setPendingStatusChange(selectedLine.operating_status === 'Apagada' ? 'Encendida' : 'Apagada');
                               setOperatorBadgeInput('');
-                              setReasonSelect('Mantenimiento');
+                              setReasonSelect(selectedLine.operating_status === 'Apagada' ? '' : 'Mantenimiento');
                               setStatusChangeError('');
                               setIsStatusChangeModalOpen(true);
                             }}
@@ -1548,7 +1585,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                           <div className="flex gap-2">
                             <input
                               type="number"
-                              min="1"
+                              min="0"
                               value={covForm.required_operators}
                               onChange={(e) => setCovForm({ ...covForm, required_operators: Number(e.target.value) })}
                               className="w-full bg-white border border-[#DCE3EA] rounded p-1.5 font-mono font-bold text-xs"
@@ -1767,7 +1804,12 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                           <XAxis dataKey="time" stroke="#64748B" fontSize={8} />
                           <YAxis stroke="#64748B" fontSize={8} unit=" min" domain={[0, yMaxIntegration]} allowDecimals={false} />
                           <Tooltip />
-                          {lines.slice(0, 6).map((l: any, idx: number) => (
+                           {lines
+                            .filter((l: any) => {
+                              const m = calculateLineMetrics(l.id, posiciones, scans, coverages, lines, stationRequirements, trainingRecords);
+                              return !(m.isCoverageActive && m.target === 0);
+                            })
+                            .slice(0, 6).map((l: any, idx: number) => (
                             <Line
                               key={l.id}
                               type="monotone"
@@ -2098,12 +2140,26 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = () => {
                 </label>
                 <select
                   value={reasonSelect}
-                  onChange={(e) => setReasonSelect(e.target.value as any)}
+                  onChange={(e) => setReasonSelect(e.target.value)}
                   className="w-full bg-white border border-[#DCE3EA] rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-[#005486] font-bold cursor-pointer"
                 >
-                  <option value="Mantenimiento">Mantenimiento</option>
-                  <option value="Ramp Up">Ramp Up</option>
-                  <option value="Corrida Piloto">Corrida Piloto</option>
+                  {pendingStatusChange === 'Encendida' ? (
+                    <>
+                      <option value="">[ Seleccionar ]</option>
+                      <option value="Fin de mantenimiento">Fin de mantenimiento</option>
+                      <option value="Fin de cambio de modelo">Fin de cambio de modelo</option>
+                      <option value="Inicio de producción">Inicio de producción</option>
+                      <option value="Material disponible">Material disponible</option>
+                      <option value="Liberación de calidad">Liberación de calidad</option>
+                      <option value="Otro">Otro</option>
+                    </>
+                  ) : (
+                    <>
+                      <option value="Mantenimiento">Mantenimiento</option>
+                      <option value="Ramp Up">Ramp Up</option>
+                      <option value="Corrida Piloto">Corrida Piloto</option>
+                    </>
+                  )}
                 </select>
               </div>
             </div>

@@ -7,6 +7,7 @@ import { ReportsView } from './components/ReportsView';
 import { CompetenciesView } from './components/CompetenciesView';
 import { ScannerDrawer } from './components/ScannerDrawer';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
+import { getCertificationsMode, setCertificationsMode, supabase, isConfigured, loadTable } from './lib/supabaseClient';
 
 export default function App() {
   const navigate = useNavigate();
@@ -17,6 +18,34 @@ export default function App() {
   
   // User Profile Role Control
   const [userRole, setUserRole] = useState<'admin' | 'supervisor' | 'viewer'>('admin');
+
+  // Global Certifications Mode State
+  const [certificationsMode, setCertificationsModeState] = useState<'Activado' | 'Desactivado'>(getCertificationsMode());
+
+  useEffect(() => {
+    const fetchMode = async () => {
+      let mode: 'Activado' | 'Desactivado' = 'Activado';
+      if (isConfigured) {
+        try {
+          const { data } = await supabase.from('global_settings').select('value').eq('key', 'modo_certificaciones').single();
+          if (data && (data.value === 'Activado' || data.value === 'Desactivado')) {
+            mode = data.value;
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      } else {
+        const settings = loadTable('global_settings');
+        const found = settings.find(s => s.key === 'modo_certificaciones');
+        if (found && (found.value === 'Activado' || found.value === 'Desactivado')) {
+          mode = found.value;
+        }
+      }
+      setCertificationsModeState(mode);
+      localStorage.setItem('linepulse_modo_certificaciones', mode);
+    };
+    fetchMode();
+  }, []);
 
   // Clock ticker
   useEffect(() => {
@@ -102,17 +131,37 @@ export default function App() {
                     <span>Reportes</span>
                   </button>
 
-                  <button
-                    onClick={() => navigate('/competencias')}
-                    className={`text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer ${
-                      isCurrentRoute('/competencias')
-                        ? 'bg-white text-[#005486] shadow-sm'
-                        : 'text-white/80 hover:text-white hover:bg-white/10'
-                    }`}
+                  {certificationsMode === 'Activado' && (
+                    <button
+                      onClick={() => navigate('/competencias')}
+                      className={`text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer ${
+                        isCurrentRoute('/competencias')
+                          ? 'bg-white text-[#005486] shadow-sm'
+                          : 'text-white/80 hover:text-white hover:bg-white/10'
+                      }`}
+                    >
+                      <Award className="w-3.5 h-3.5" />
+                      <span>Competencias</span>
+                    </button>
+                  )}
+                </div>
+
+                {/* Certifications Mode Selector */}
+                <div className="flex items-center space-x-1.5 bg-black/15 border border-white/10 px-2.5 py-1.5 rounded-xl text-white">
+                  <Award className="w-3.5 h-3.5 text-white/80" />
+                  <select
+                    value={certificationsMode}
+                    onChange={async (e) => {
+                      const newMode = e.target.value as 'Activado' | 'Desactivado';
+                      setCertificationsModeState(newMode);
+                      await setCertificationsMode(newMode);
+                      window.dispatchEvent(new Event('certifications-mode-changed'));
+                    }}
+                    className="bg-transparent border-none text-[11px] font-bold text-white focus:outline-none cursor-pointer pr-1"
                   >
-                    <Award className="w-3.5 h-3.5" />
-                    <span>Competencias</span>
-                  </button>
+                    <option value="Activado" className="text-slate-800">Modo Certificaciones: Activo</option>
+                    <option value="Desactivado" className="text-slate-800">Modo Certificaciones: Inactivo</option>
+                  </select>
                 </div>
 
                 {/* Profile Role Selector */}
@@ -143,7 +192,11 @@ export default function App() {
               <Routes>
                 <Route path="/dashboard" element={<ExecutiveDashboard userRole={userRole} />} />
                 <Route path="/reportes" element={<ReportsView />} />
-                <Route path="/competencias" element={<CompetenciesView />} />
+                {certificationsMode === 'Activado' ? (
+                  <Route path="/competencias" element={<CompetenciesView />} />
+                ) : (
+                  <Route path="/competencias" element={<Navigate to="/dashboard" replace />} />
+                )}
                 <Route path="*" element={<Navigate to="/dashboard" replace />} />
               </Routes>
             </main>

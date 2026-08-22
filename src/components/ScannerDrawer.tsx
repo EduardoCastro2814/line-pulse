@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { supabase, calculateLineMetrics, getActiveStaffingTarget, mapScanFromSupabase, getLocalDateString, getCurrentShift } from '../lib/supabaseClient';
+import { supabase, calculateLineMetrics, getActiveStaffingTarget, mapScanFromSupabase, getLocalDateString, getCurrentShift, getCertificationsMode } from '../lib/supabaseClient';
 import { X, QrCode, ClipboardList, CheckCircle, XCircle } from 'lucide-react';
 
 interface ScannerDrawerProps {
@@ -274,7 +274,8 @@ export const ScannerDrawer: React.FC<ScannerDrawerProps> = ({ isOpen, onClose })
         );
 
         const matchedPos = Object.values(tempMetrics.positionsDetails || {}).find((d: any) => d.employee?.badge_id === badgeId.trim());
-        if (matchedPos) {
+        const isCertModeActive = getCertificationsMode() === 'Activado';
+        if (matchedPos && isCertModeActive) {
           if (matchedPos.isCertified) {
             msg += `\n✅ Operador certificado para la estación.`;
           } else {
